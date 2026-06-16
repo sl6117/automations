@@ -1,0 +1,18 @@
+# Secrets — never commit real env files
+.env
+.env.*
+!.env.example
+
+# Per-run state (cursors, last-seen ids) — local only
+**/state.json
+
+# Logs (cost/token logs, run logs)
+logs/*
+!logs/.gitkeep
+
+# Node
+node_modules/
+npm-debug.log*
+
+# OS
+.DS_Store
