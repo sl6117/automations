@@ -3,7 +3,9 @@ package twitterdigest
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
+	"github.com/sl6117/automations/internal/config"
 	"github.com/sl6117/automations/internal/runner"
 	"github.com/sl6117/automations/pkg/sinks"
 	"github.com/sl6117/automations/pkg/sources"
@@ -18,10 +20,10 @@ type project struct{}
 func (p *project) Name() string { return "twitter-digest" }
 
 func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
-
-	const minEngagement = 100
-	topics := []string{"AI", "Econ", "Crypto", "Stocks", "World News"}
-
+	var cfg Config
+	if err := config.Load(filepath.Join(runTime.ProjectDir, "config.json"), &cfg); err != nil {
+		return err
+	}
 	// gather
 	source := sources.Mock{}
 	tweets, err := source.Fetch(ctx)
@@ -30,8 +32,8 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 	}
 
 	// process (no tokens) + reason (heuristic, no tokens)
-	kept := filter(tweets, minEngagement)
-	digest := summarize(kept, topics)
+	kept := filter(tweets, cfg.MinEngagement)
+	digest := summarize(kept, cfg.Topics)
 	message := render(digest)
 
 	runTime.Log.Printf("[twitter-digest] %d fetched -> %d kept -> %d buckets", len(tweets), len(kept), len(digest.Buckets))

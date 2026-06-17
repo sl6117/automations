@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 
 	"github.com/sl6117/automations/internal/runner"
 	// Project registrations go here as blank imports so their init() runs.
@@ -75,8 +76,9 @@ func cmdRun(args []string) {
 	}
 
 	runTime := &runner.Runtime{
-		DryRun: *dryRun,
-		Log:    log.New(os.Stdout, "", 0),
+		DryRun:     *dryRun,
+		Log:        log.New(os.Stdout, "", 0),
+		ProjectDir: filepath.Join("projects", name),
 	}
 
 	if err := project.Run(context.Background(), runTime); err != nil {

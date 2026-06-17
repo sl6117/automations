@@ -11,8 +11,9 @@ import (
 // runner builds 1 runtime per invocation and passes it into Run
 // Addint a field here -> makes it available to e ery project at once (as this is a template for all projects)
 type Runtime struct {
-	DryRun bool
-	Log    *log.Logger
+	DryRun     bool
+	Log        *log.Logger
+	ProjectDir string
 }
 
 // Project is the contract every automation satisfies

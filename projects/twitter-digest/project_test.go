@@ -13,8 +13,9 @@ import (
 func TestProjectRun(t *testing.T) {
 	var buf bytes.Buffer
 	runTime := &runner.Runtime{
-		DryRun: true,
-		Log:    log.New(&buf, "", 0),
+		DryRun:     true,
+		Log:        log.New(&buf, "", 0),
+		ProjectDir: ".",
 	}
 
 	if err := (&project{}).Run(context.Background(), runTime); err != nil {
