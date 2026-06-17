@@ -51,7 +51,7 @@ func summarize(tweets []sources.Tweet, topics []string) Digest {
 
 	out := make([]Bucket, 0, len(buckets)+1)
 	for _, b := range buckets {
-		if len(b.Tweets) > 0. {
+		if len(b.Tweets) > 0 {
 			out = append(out, b)
 		}
 	}
