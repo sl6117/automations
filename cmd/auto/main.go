@@ -14,6 +14,7 @@ import (
 	"github.com/sl6117/automations/internal/runner"
 	// Project registrations go here as blank imports so their init() runs.
 	_ "github.com/sl6117/automations/projects/hello"
+	_ "github.com/sl6117/automations/projects/twitter-digest"
 )
 
 func main() {

@@ -1,0 +1,6 @@
+{
+    "minEngagement": 100,
+    "topics": ["AI", "Econ", "Crypto", "Stocks", "World News"],
+    "source": "mock",
+    "model": "anthropic/claude-haiku-4.5"
+}
