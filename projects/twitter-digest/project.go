@@ -3,19 +3,28 @@ package twitterdigest
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 
+	"github.com/sl6117/automations/internal/ai"
 	"github.com/sl6117/automations/internal/config"
 	"github.com/sl6117/automations/internal/runner"
 	"github.com/sl6117/automations/pkg/sinks"
 	"github.com/sl6117/automations/pkg/sources"
 )
 
+const (
+	digestTemperature = 0.2
+	digestMaxTokens   = 900
+)
+
 func init() {
 	runner.Register(&project{})
 }
 
-type project struct{}
+type project struct {
+	client ai.Client
+}
 
 func (p *project) Name() string { return "twitter-digest" }
 
@@ -33,10 +42,13 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 
 	// process (no tokens) + reason (heuristic, no tokens)
 	kept := filter(tweets, cfg.MinEngagement)
-	digest := summarize(kept, cfg.Topics)
-	message := render(digest)
 
-	runTime.Log.Printf("[twitter-digest] %d fetched -> %d kept -> %d buckets", len(tweets), len(kept), len(digest.Buckets))
+	runTime.Log.Printf("[twitter-digest] %d fetched -> %d kept", len(tweets), len(kept))
+
+	message, err := p.digest(ctx, runTime, cfg, kept)
+	if err != nil {
+		return err
+	}
 
 	if runTime.DryRun {
 		runTime.Log.Println("[twitter-digest] dry-run: would have delivered:", message)
@@ -44,4 +56,36 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 
 	sink := sinks.Console{Out: runTime.Log.Writer()}
 	return sink.Deliver(ctx, message)
+}
+
+func (p *project) digest(ctx context.Context, runTime *runner.Runtime, cfg Config, kept []sources.Tweet) (string, error) {
+
+	apiKey := os.Getenv("OPENROUTER_API_KEY")
+	if runTime.DryRun || apiKey == "" {
+		if !runTime.DryRun {
+			runTime.Log.Println("[twitter-digest] no OPENROUTER_API_KEY; using offline heuristic")
+		}
+		return render(summarize(kept, cfg.Topics)), nil
+	}
+	prompt, err := buildPrompt(runTime.ProjectDir, cfg.Topics, kept)
+	if err != nil {
+		return "", err
+	}
+
+	client := p.client
+	if client == nil {
+		client = ai.OpenRouter{APIKey: apiKey}
+	}
+
+	resp, err := client.Complete(ctx, ai.Request{
+		Model:       cfg.Model,
+		Prompt:      prompt,
+		Temperature: digestTemperature,
+		MaxTokens:   digestMaxTokens,
+	})
+	if err != nil {
+		return "", fmt.Errorf("summarize via %s: %w", cfg.Model, err)
+	}
+	runTime.Log.Printf("[twitter-digest] model=%s tokens in=%d out=%d", resp.Model, resp.Usage.InputTokens, resp.Usage.OutputTokens)
+	return resp.Text, nil
 }
