@@ -12,6 +12,7 @@ import (
 )
 
 func TestProjectRun(t *testing.T) {
+	t.Setenv("AUTOMATION_ROOT", t.TempDir())
 	var buf bytes.Buffer
 	runTime := &runner.Runtime{
 		DryRun:     true,
@@ -48,6 +49,7 @@ func (f *fakeClient) Complete(ctx context.Context, req ai.Request) (ai.Response,
 }
 
 func TestProjectRunLLM(t *testing.T) {
+	t.Setenv("AUTOMATION_ROOT", t.TempDir())
 	t.Setenv("OPENROUTER_API_KEY", "test-key")
 
 	fake := &fakeClient{resp: ai.Response{

@@ -8,6 +8,7 @@ import (
 
 	"github.com/sl6117/automations/internal/ai"
 	"github.com/sl6117/automations/internal/config"
+	"github.com/sl6117/automations/internal/obs"
 	"github.com/sl6117/automations/internal/runner"
 	"github.com/sl6117/automations/pkg/sinks"
 	"github.com/sl6117/automations/pkg/sources"
@@ -45,9 +46,20 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 
 	runTime.Log.Printf("[twitter-digest] %d fetched -> %d kept", len(tweets), len(kept))
 
-	message, err := p.digest(ctx, runTime, cfg, kept)
+	message, usage, err := p.digest(ctx, runTime, cfg, kept)
 	if err != nil {
 		return err
+	}
+
+	if _, err := obs.LogRun(obs.Run{
+		Project:      p.Name(),
+		Model:        cfg.Model,
+		DryRun:       runTime.DryRun,
+		InputTokens:  usage.InputTokens,
+		OutputTokens: usage.OutputTokens,
+		ItemCount:    len(kept),
+	}); err != nil {
+		return fmt.Errorf("log run: %w", err)
 	}
 
 	if runTime.DryRun {
@@ -58,18 +70,18 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 	return sink.Deliver(ctx, message)
 }
 
-func (p *project) digest(ctx context.Context, runTime *runner.Runtime, cfg Config, kept []sources.Tweet) (string, error) {
+func (p *project) digest(ctx context.Context, runTime *runner.Runtime, cfg Config, kept []sources.Tweet) (string, ai.Usage, error) {
 
 	apiKey := os.Getenv("OPENROUTER_API_KEY")
 	if runTime.DryRun || apiKey == "" {
 		if !runTime.DryRun {
 			runTime.Log.Println("[twitter-digest] no OPENROUTER_API_KEY; using offline heuristic")
 		}
-		return render(summarize(kept, cfg.Topics)), nil
+		return render(summarize(kept, cfg.Topics)), ai.Usage{}, nil
 	}
 	prompt, err := buildPrompt(runTime.ProjectDir, cfg.Topics, kept)
 	if err != nil {
-		return "", err
+		return "", ai.Usage{}, err
 	}
 
 	client := p.client
@@ -84,8 +96,8 @@ func (p *project) digest(ctx context.Context, runTime *runner.Runtime, cfg Confi
 		MaxTokens:   digestMaxTokens,
 	})
 	if err != nil {
-		return "", fmt.Errorf("summarize via %s: %w", cfg.Model, err)
+		return "", ai.Usage{}, fmt.Errorf("summarize via %s: %w", cfg.Model, err)
 	}
 	runTime.Log.Printf("[twitter-digest] model=%s tokens in=%d out=%d", resp.Model, resp.Usage.InputTokens, resp.Usage.OutputTokens)
-	return resp.Text, nil
+	return resp.Text, resp.Usage, nil
 }
