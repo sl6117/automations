@@ -35,7 +35,10 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 		return err
 	}
 	// gather
-	source := sources.Mock{}
+	source, err := selectSource(cfg)
+	if err != nil {
+		return err
+	}
 	tweets, err := source.Fetch(ctx)
 	if err != nil {
 		return fmt.Errorf("fetch from %s: %w", source.Name(), err)
@@ -72,21 +75,25 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 
 func (p *project) digest(ctx context.Context, runTime *runner.Runtime, cfg Config, kept []sources.Tweet) (string, ai.Usage, error) {
 
-	apiKey := os.Getenv("OPENROUTER_API_KEY")
-	if runTime.DryRun || apiKey == "" {
+	client := p.client
+
+	if client == nil {
+		c, err := selectClient(cfg)
+		if err != nil {
+			return "", ai.Usage{}, err
+		}
+		client = c
+	}
+
+	if runTime.DryRun || client == nil {
 		if !runTime.DryRun {
-			runTime.Log.Println("[twitter-digest] no OPENROUTER_API_KEY; using offline heuristic")
+			runTime.Log.Println("[twitter-digest] no LLM API Key; using offline heuristic")
 		}
 		return render(summarize(kept, cfg.Topics)), ai.Usage{}, nil
 	}
 	prompt, err := buildPrompt(runTime.ProjectDir, cfg.Topics, kept)
 	if err != nil {
 		return "", ai.Usage{}, err
-	}
-
-	client := p.client
-	if client == nil {
-		client = ai.OpenRouter{APIKey: apiKey}
 	}
 
 	resp, err := client.Complete(ctx, ai.Request{
@@ -100,4 +107,45 @@ func (p *project) digest(ctx context.Context, runTime *runner.Runtime, cfg Confi
 	}
 	runTime.Log.Printf("[twitter-digest] model=%s tokens in=%d out=%d", resp.Model, resp.Usage.InputTokens, resp.Usage.OutputTokens)
 	return resp.Text, resp.Usage, nil
+}
+
+func selectSource(cfg Config) (sources.Source, error) {
+	switch cfg.Source {
+	case "", "mock":
+		return sources.Mock{}, nil
+	case "x", "xapi":
+		token := os.Getenv("X_BEARER_TOKEN")
+		if token == "" {
+			return nil, fmt.Errorf("source %q needs X_BEARER_TOKEN in .env", cfg.Source)
+		}
+		listID := os.Getenv("X_LIST_ID")
+		if listID == "" {
+			listID = cfg.ListID
+		}
+		if listID == "" {
+			return nil, fmt.Errorf("source %q needs a list id (config.json listId or X_LIST_ID)", cfg.Source)
+		}
+		return sources.XAPI{BearerToken: token, ListID: listID}, nil
+	default:
+		return nil, fmt.Errorf("unknown source: %q", cfg.Source)
+	}
+}
+
+func selectClient(cfg Config) (ai.Client, error) {
+	switch cfg.Provider {
+	case "", "openrouter":
+		key := os.Getenv("OPENROUTER_API_KEY")
+		if key == "" {
+			return nil, nil
+		}
+		return ai.OpenRouter{APIKey: key}, nil
+	case "anthropic":
+		key := os.Getenv("ANTHROPIC_API_KEY")
+		if key == "" {
+			return nil, nil
+		}
+		return ai.Anthropic{APIKey: key}, nil
+	default:
+		return nil, fmt.Errorf("unknown provider: %q", cfg.Provider)
+	}
 }

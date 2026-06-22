@@ -4,5 +4,7 @@ type Config struct {
 	MinEngagement int      `json:"minEngagement"`
 	Topics        []string `json:"topics"`
 	Source        string   `json:"source"`
+	ListID        string   `json:"listId"`
+	Provider      string   `json:"provider"`
 	Model         string   `json:"model"`
 }
