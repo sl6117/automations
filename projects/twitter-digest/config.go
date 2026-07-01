@@ -7,4 +7,8 @@ type Config struct {
 	ListID        string   `json:"listId"`
 	Provider      string   `json:"provider"`
 	Model         string   `json:"model"`
+	DeliverTo     []string `json:"deliverTo"`
+	EmailFrom     string   `json:"emailFrom"`
+	EmailTo       []string `json:"emailTo"`
+	EmailSubject  string   `json:"emailSubject"`
 }

@@ -67,10 +67,19 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 
 	if runTime.DryRun {
 		runTime.Log.Println("[twitter-digest] dry-run: would have delivered:", message)
+		return nil
 	}
 
-	sink := sinks.Console{Out: runTime.Log.Writer()}
-	return sink.Deliver(ctx, message)
+	deliverSinks, err := selectSinks(cfg, runTime)
+	if err != nil {
+		return err
+	}
+	for _, sink := range deliverSinks {
+		if err := sink.Deliver(ctx, message); err != nil {
+			return fmt.Errorf("delivery via %s: %w", sink.Name(), err)
+		}
+	}
+	return nil
 }
 
 func (p *project) digest(ctx context.Context, runTime *runner.Runtime, cfg Config, kept []sources.Tweet) (string, ai.Usage, error) {
@@ -148,4 +157,48 @@ func selectClient(cfg Config) (ai.Client, error) {
 	default:
 		return nil, fmt.Errorf("unknown provider: %q", cfg.Provider)
 	}
+}
+
+func selectSinks(cfg Config, runTime *runner.Runtime) ([]sinks.Sink, error) {
+	targets := cfg.DeliverTo
+
+	if len(targets) == 0 {
+		targets = []string{"console"}
+	}
+
+	var selected []sinks.Sink
+	for _, target := range targets {
+		switch target {
+		case "console":
+			selected = append(selected, sinks.Console{Out: runTime.Log.Writer()})
+		case "telegram":
+			token := os.Getenv("TELEGRAM_BOT_TOKEN")
+			chatID := os.Getenv("TELEGRAM_CHAT_ID")
+			if token == "" || chatID == "" {
+				return nil, fmt.Errorf("telegram sink needs TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env")
+			}
+			selected = append(selected, sinks.Telegram{BotToken: token, ChatID: chatID})
+		case "email":
+			key := os.Getenv("RESEND_API_KEY")
+			if key == "" {
+				return nil, fmt.Errorf("email sink needs RESEND_API_KEY in .env")
+			}
+			if len(cfg.EmailTo) == 0 {
+				return nil, fmt.Errorf("email sink needs emailTo in config.json")
+			}
+			subject := cfg.EmailSubject
+			if subject == "" {
+				subject = "Daily X Digest"
+			}
+			selected = append(selected, sinks.Email{
+				APIKey:  key,
+				From:    cfg.EmailFrom,
+				To:      cfg.EmailTo,
+				Subject: subject,
+			})
+		default:
+			return nil, fmt.Errorf("unknown sink: %q", target)
+		}
+	}
+	return selected, nil
 }
