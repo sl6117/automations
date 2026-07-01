@@ -62,3 +62,11 @@ func TestTelegramDeliverChunks(t *testing.T) {
 		t.Errorf("expected the long message to be split into multiple sends, got %d", calls)
 	}
 }
+
+func TestTelegramRedactsToken(t *testing.T) {
+	telegram := Telegram{BotToken: "totallysecrettoken"}
+	got := telegram.redact(`Post "https://api.telegram.org/bottotallysecrettoken/sendMessage": boom`)
+	if strings.Contains(got, "totallysecrettoken") {
+		t.Errorf("token leaked in error: %s", got)
+	}
+}

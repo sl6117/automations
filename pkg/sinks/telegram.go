@@ -58,14 +58,14 @@ func (t Telegram) Deliver(ctx context.Context, message string) error {
 		}
 		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 		if err != nil {
-			return fmt.Errorf("build telegram request: %w", err)
+			return fmt.Errorf("build telegram request: %s", t.redact(err.Error()))
 		}
 
 		httpReq.Header.Set("Content-Type", "application/json")
 
 		resp, err := httpClient.Do(httpReq)
 		if err != nil {
-			return fmt.Errorf("call telegram: %w", err)
+			return fmt.Errorf("call telegram: %s", t.redact(err.Error()))
 		}
 		data, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
@@ -117,4 +117,12 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n]
+}
+
+// redact stripts the bot token from a string
+func (t Telegram) redact(s string) string {
+	if t.BotToken == "" {
+		return s
+	}
+	return strings.ReplaceAll(s, t.BotToken, "***REDACTED***")
 }
