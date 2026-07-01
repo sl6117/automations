@@ -75,7 +75,7 @@ func TestProjectRunLLM(t *testing.T) {
 	if strings.Contains(fake.gotReq.Prompt, "@cryptomoonboy") {
 		t.Errorf("spam reached the model prompt (filter bypassed):\n%s", fake.gotReq.Prompt)
 	}
-	if fake.gotReq.Model != "anthropic/claude-haiku-4.5" {
+	if fake.gotReq.Model != "claude-haiku-4-5" {
 		t.Errorf("model = %q, want config model", fake.gotReq.Model)
 	}
 }
