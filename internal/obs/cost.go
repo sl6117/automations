@@ -16,6 +16,9 @@ var Prices = map[string]struct{ In, Out float64 }{
 	"anthropic/claude-haiku-4.5":  {In: 1.0, Out: 5.0},
 	"anthropic/claude-sonnet-4.6": {In: 3.0, Out: 15.0},
 	"anthropic/claude-opus-4.6":   {In: 5.0, Out: 25.0},
+
+	// anthropic direct
+	"claude-haiku-4-5": {In: 1.0, Out: 5.0},
 }
 
 // EstimateCost returns the USD cost for a model's token usage, or 0 if the model isn't in the price table.

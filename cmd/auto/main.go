@@ -12,7 +12,9 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/sl6117/automations/internal/obs"
 	"github.com/sl6117/automations/internal/runner"
+
 	// Project registrations go here as blank imports so their init() runs.
 	_ "github.com/sl6117/automations/projects/hello"
 	_ "github.com/sl6117/automations/projects/twitter-digest"
@@ -29,6 +31,8 @@ func main() {
 		cmdList()
 	case "run":
 		cmdRun(os.Args[2:])
+	case "cost":
+		cmdCost()
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", os.Args[1])
 		usage()
@@ -42,6 +46,7 @@ func usage() {
 	Usage:
 		auto list                        list registered projects
 		auto run <project> [--dry-run]   run a project
+		auto cost                        show LLM cost report
 	`)
 }
 
@@ -53,6 +58,12 @@ func cmdList() {
 	}
 	for _, n := range names {
 		fmt.Println(n)
+	}
+}
+
+func cmdCost() {
+	if err := obs.Report(os.Stdout); err != nil {
+		log.Fatalf("cost: %v", err)
 	}
 }
 
