@@ -3,5 +3,6 @@
     "topics": ["AI", "Econ", "Crypto", "Stocks", "World News"],
     "source": "mock",
     "provider": "anthropic",
-    "model": "claude-haiku-4-5"
+    "model": "claude-haiku-4-5",
+    "deliverTo": ["telegram", "console"]
 }
