@@ -19,3 +19,6 @@ npm-debug.log*
 
 # handoff files
 docs/handoffs/
+
+# Compiled crunner binary (rebuilt locally; used by launchd)
+bin/

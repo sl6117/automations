@@ -24,7 +24,11 @@ Remove:
 ```
 
 Notes:
-- The job runs `scripts/run-digest.sh`, which loads Node 22 (nvm) and `.env`, then `npm run digest`.
+<!-- # which loads Node 22 (nvm) and `.env`, then `npm run digest`. -->
+- The job runs `scripts/run-digest.sh`, which loads `.env` and runs the prebuilt Go binary
+  (`bin/auto run twitter-digest`). launched has no direnv/PATH, hence the wrapper.
+- IMPORTANT: after code changes, rebuild or the schedule keeps running old code
+  `go build -o bin/auto ./cmd/auto`
 - It will show in System Settings > General > Login Items as a `bash` background item
   ("unidentified developer"). That is expected and is the legitimate scheduler.
 - If the Mac is asleep at 9:00, launchd runs the job at the next wake.
