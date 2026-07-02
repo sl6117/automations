@@ -73,8 +73,8 @@ func TestXAPIFetch(t *testing.T) {
 	if gotUserFields != "name,username" {
 		t.Errorf("user.fields = %q, want name,username", gotUserFields)
 	}
-	if gotExpansions != "author_id" {
-		t.Errorf("expansions = %q, want author_id", gotExpansions)
+	if gotExpansions != "author_id,referenced_tweets.id,referenced_tweets.id.author_id" {
+		t.Errorf("expansions = %q, want referenced tweet expansions", gotExpansions)
 	}
 	if sawSinceID {
 		t.Errorf("since_id is sent even though SinceID is empty")
@@ -99,5 +99,53 @@ func TestXAPIFetchSinceID(t *testing.T) {
 	}
 	if gotSinceID != "2072532278476148881" {
 		t.Errorf("since_id = %q, want 2072532278476148881", gotSinceID)
+	}
+}
+
+func TestXAPIFetchExpandsRetweets(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{
+			"data": [
+				{"id": "200", "text": "RT @orig: this gets cut mid-sen",
+				 "author_id": "42",
+				 "public_metrics": {"like_count": 500, "retweet_count": 30},
+				 "referenced_tweets": [{"type": "retweeted", "id": "199"}]},
+				{"id": "201", "text": "RT @ghost: original was dele",
+				 "author_id": "42",
+				 "public_metrics": {"like_count": 300, "retweet_count": 10},
+				 "referenced_tweets": [{"type": "retweeted", "id": "198"}]}
+			],
+			"includes": {
+				"users": [
+					{"id": "42", "name": "Retweeter", "username": "retweeter"},
+					{"id": "77", "name": "Original Author", "username": "orig"}
+				],
+				"tweets": [
+					{"id": "199", "text": "this gets cut mid-sentence in the wrapper but the expansion has every word", "author_id": "77"}
+				]
+			}
+		}`)
+	}))
+	defer server.Close()
+
+	x := XAPI{BearerToken: "test-token", ListID: "12345", BaseURL: server.URL}
+	tweets, err := x.Fetch(context.Background())
+
+	if err != nil {
+		t.Fatalf("Fetch returned error: %v", err)
+	}
+	if len(tweets) != 2 {
+		t.Fatalf("got %d tweets, want 2", len(tweets))
+	}
+
+	want := "RT @orig: this gets cut mid-sentence in the wrapper but the expansion has every word"
+
+	if tweets[0].Text != want {
+		t.Errorf("expanded text = %q, want %q", tweets[0].Text, want)
+	}
+	// original missing from includes -> keep truncated wrapper text
+	if tweets[1].Text != "RT @ghost: original was dele" {
+		t.Errorf("fallback text = %q, want truncated wrapper text", tweets[1].Text)
 	}
 }

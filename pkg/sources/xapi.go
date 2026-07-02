@@ -35,6 +35,10 @@ type xListTweetsResponse struct {
 			LikeCount    int `json:"like_count"`
 			RetweetCount int `json:"retweet_count"`
 		} `json:"public_metrics"`
+		ReferencedTweets []struct {
+			Type string `json:"type"`
+			ID   string `json:"id"`
+		} `json:"referenced_tweets"`
 	} `json:"data"`
 
 	Includes struct {
@@ -43,6 +47,11 @@ type xListTweetsResponse struct {
 			Name     string `json:"name"`
 			Username string `json:"username"`
 		} `json:"users"`
+		Tweets []struct {
+			ID       string `json:"id"`
+			Text     string `json:"text"`
+			AuthorID string `json:"author_id"`
+		} `json:"tweets"`
 	} `json:"includes"`
 }
 
@@ -58,8 +67,8 @@ func (x XAPI) Fetch(ctx context.Context) ([]Tweet, error) {
 
 	q := url.Values{}
 	q.Set("max_results", "50")
-	q.Set("tweet.fields", "public_metrics")
-	q.Set("expansions", "author_id")
+	q.Set("tweet.fields", "public_metrics,referenced_tweets")
+	q.Set("expansions", "author_id,referenced_tweets.id,referenced_tweets.id.author_id")
 	q.Set("user.fields", "name,username")
 
 	if x.SinceID != "" {
@@ -107,15 +116,36 @@ func (x XAPI) Fetch(ctx context.Context) ([]Tweet, error) {
 		users[u.ID] = user{name: u.Name, username: u.Username}
 	}
 
+	type refTweet struct{ text, authorID string }
+
+	refs := make(map[string]refTweet, len(parsed.Includes.Tweets))
+
+	for _, rt := range parsed.Includes.Tweets {
+		refs[rt.ID] = refTweet{text: rt.Text, authorID: rt.AuthorID}
+	}
+
 	tweets := make([]Tweet, 0, len(parsed.Data))
 
 	for _, d := range parsed.Data {
 		user := users[d.AuthorID]
+
+		text := d.Text
+		for _, ref := range d.ReferencedTweets {
+			if ref.Type != "retweeted" {
+				continue
+			}
+			orig, ok := refs[ref.ID]
+			if !ok {
+				continue
+			}
+			origUser := users[orig.authorID]
+			text = "RT @" + origUser.username + ": " + orig.text
+		}
 		tweets = append(tweets, Tweet{
 			ID:      d.ID,
 			Author:  user.name,
 			Handle:  "@" + user.username,
-			Text:    d.Text,
+			Text:    text,
 			URL:     fmt.Sprintf("https://x.com/%s/status/%s", user.username, d.ID),
 			Likes:   d.PublicMetrics.LikeCount,
 			Reposts: d.PublicMetrics.RetweetCount,
