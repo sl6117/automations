@@ -9,6 +9,7 @@ import (
 
 	"github.com/sl6117/automations/internal/ai"
 	"github.com/sl6117/automations/internal/runner"
+	"github.com/sl6117/automations/pkg/sources"
 )
 
 func TestProjectRun(t *testing.T) {
@@ -20,7 +21,7 @@ func TestProjectRun(t *testing.T) {
 		ProjectDir: ".",
 	}
 
-	if err := (&project{}).Run(context.Background(), runTime); err != nil {
+	if err := (&project{source: sources.Mock{}}).Run(context.Background(), runTime); err != nil {
 		t.Fatalf("run failed: %v", err)
 	}
 
@@ -61,7 +62,7 @@ func TestProjectRunLLM(t *testing.T) {
 	var buf bytes.Buffer
 	runTime := &runner.Runtime{DryRun: false, Log: log.New(&buf, "", 0), ProjectDir: "."}
 
-	if err := (&project{client: fake}).Run(context.Background(), runTime); err != nil {
+	if err := (&project{client: fake, source: sources.Mock{}}).Run(context.Background(), runTime); err != nil {
 		t.Fatalf("run failed: %v", err)
 	}
 

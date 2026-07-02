@@ -25,6 +25,7 @@ func init() {
 
 type project struct {
 	client ai.Client
+	source sources.Source
 }
 
 func (p *project) Name() string { return "twitter-digest" }
@@ -35,9 +36,13 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 		return err
 	}
 	// gather
-	source, err := selectSource(cfg)
-	if err != nil {
-		return err
+	source := p.source
+	if source == nil {
+		selected, err := selectSource(cfg)
+		if err != nil {
+			return err
+		}
+		source = selected
 	}
 	tweets, err := source.Fetch(ctx)
 	if err != nil {
