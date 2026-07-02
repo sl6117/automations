@@ -16,7 +16,7 @@ import (
 
 const (
 	digestTemperature = 0.2
-	digestMaxTokens   = 900
+	digestMaxTokens   = 1500
 )
 
 func init() {
