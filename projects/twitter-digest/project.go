@@ -26,6 +26,7 @@ func init() {
 type project struct {
 	client ai.Client
 	source sources.Source
+	sinks  []sinks.Sink
 }
 
 func (p *project) Name() string { return "twitter-digest" }
@@ -36,9 +37,13 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 		return err
 	}
 	// gather
+	state, err := loadState()
+	if err != nil {
+		return err
+	}
 	source := p.source
 	if source == nil {
-		selected, err := selectSource(cfg)
+		selected, err := selectSource(cfg, state.SinceID)
 		if err != nil {
 			return err
 		}
@@ -51,6 +56,17 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 
 	// process (no tokens) + reason (heuristic, no tokens)
 	kept := filter(tweets, cfg.MinEngagement)
+
+	if len(kept) == 0 {
+		runTime.Log.Println("[twitter-digest] no tweets to digest - skipping send")
+
+		if !runTime.DryRun {
+			if err := advanceCursor(runTime, state, tweets); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 
 	runTime.Log.Printf("[twitter-digest] %d fetched -> %d kept", len(tweets), len(kept))
 
@@ -75,16 +91,21 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 		return nil
 	}
 
-	deliverSinks, err := selectSinks(cfg, runTime)
-	if err != nil {
-		return err
+	deliverSinks := p.sinks
+	if deliverSinks == nil {
+		selected, err := selectSinks(cfg, runTime)
+		if err != nil {
+			return err
+		}
+		deliverSinks = selected
 	}
+
 	for _, sink := range deliverSinks {
 		if err := sink.Deliver(ctx, message); err != nil {
 			return fmt.Errorf("delivery via %s: %w", sink.Name(), err)
 		}
 	}
-	return nil
+	return advanceCursor(runTime, state, tweets)
 }
 
 func (p *project) digest(ctx context.Context, runTime *runner.Runtime, cfg Config, kept []sources.Tweet) (string, ai.Usage, error) {
@@ -123,7 +144,7 @@ func (p *project) digest(ctx context.Context, runTime *runner.Runtime, cfg Confi
 	return resp.Text, resp.Usage, nil
 }
 
-func selectSource(cfg Config) (sources.Source, error) {
+func selectSource(cfg Config, sinceID string) (sources.Source, error) {
 	switch cfg.Source {
 	case "", "mock":
 		return sources.Mock{}, nil
@@ -139,7 +160,7 @@ func selectSource(cfg Config) (sources.Source, error) {
 		if listID == "" {
 			return nil, fmt.Errorf("source %q needs a list id (config.json listId or X_LIST_ID)", cfg.Source)
 		}
-		return sources.XAPI{BearerToken: token, ListID: listID}, nil
+		return sources.XAPI{BearerToken: token, ListID: listID, SinceID: sinceID}, nil
 	default:
 		return nil, fmt.Errorf("unknown source: %q", cfg.Source)
 	}
@@ -206,4 +227,19 @@ func selectSinks(cfg Config, runTime *runner.Runtime) ([]sinks.Sink, error) {
 		}
 	}
 	return selected, nil
+}
+
+// advanceCursor persists the newest fetched ID s.t the next run only sees newer tweets.
+// Called only after the run's real work succeeded - a failed runretries the same tweets.
+func advanceCursor(runTime *runner.Runtime, state State, tweets []sources.Tweet) error {
+	id := newestID(tweets)
+	if id == "" || id == state.SinceID {
+		return nil
+	}
+	state.SinceID = id
+	if err := saveState(state); err != nil {
+		return fmt.Errorf("save state: %w", err)
+	}
+	runTime.Log.Printf("[twitter-digest] advanced cursor to %s", id)
+	return nil
 }

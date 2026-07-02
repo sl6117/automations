@@ -9,8 +9,30 @@ import (
 
 	"github.com/sl6117/automations/internal/ai"
 	"github.com/sl6117/automations/internal/runner"
+	"github.com/sl6117/automations/pkg/sinks"
 	"github.com/sl6117/automations/pkg/sources"
 )
+
+type fakeSink struct {
+	delivered []string
+}
+
+func (f *fakeSink) Name() string { return "fake" }
+
+func (f *fakeSink) Deliver(ctx context.Context, message string) error {
+	f.delivered = append(f.delivered, message)
+	return nil
+}
+
+type quietSource struct{}
+
+func (quietSource) Name() string { return "quiet" }
+
+func (quietSource) Fetch(ctx context.Context) ([]sources.Tweet, error) {
+	return []sources.Tweet{
+		{ID: "99", Author: "spam bot", Handle: "@cryptomoonboy", Text: "BUY $SCAM", Likes: 2, Reposts: 0},
+	}, nil
+}
 
 func TestProjectRun(t *testing.T) {
 	t.Setenv("AUTOMATION_ROOT", t.TempDir())
@@ -59,24 +81,62 @@ func TestProjectRunLLM(t *testing.T) {
 		Usage: ai.Usage{InputTokens: 10, OutputTokens: 20},
 	}}
 
+	sink := &fakeSink{}
+
 	var buf bytes.Buffer
 	runTime := &runner.Runtime{DryRun: false, Log: log.New(&buf, "", 0), ProjectDir: "."}
 
-	if err := (&project{client: fake, source: sources.Mock{}}).Run(context.Background(), runTime); err != nil {
+	p := &project{client: fake, source: sources.Mock{}, sinks: []sinks.Sink{sink}}
+
+	if err := p.Run(context.Background(), runTime); err != nil {
 		t.Fatalf("run failed: %v", err)
 	}
 
-	got := buf.String()
-	if !strings.Contains(got, "Dario says AI is coming") {
-		t.Errorf("output missing model text\n---\n%s", got)
+	if len(sink.delivered) != 1 || !strings.Contains(sink.delivered[0], "Dario says AI is coming") {
+		t.Errorf("sink deliveries = %#v, want one message with model text", sink.delivered)
 	}
-	if !strings.Contains(fake.gotReq.Prompt, "Dario") {
-		t.Errorf("prompt to model missing a kept tweet:\n%s", fake.gotReq.Prompt)
-	}
-	if strings.Contains(fake.gotReq.Prompt, "@cryptomoonboy") {
-		t.Errorf("spam reached the model prompt (filter bypassed):\n%s", fake.gotReq.Prompt)
-	}
+
 	if fake.gotReq.Model != "claude-haiku-4-5" {
 		t.Errorf("model = %q, want config model", fake.gotReq.Model)
+	}
+
+	state, err := loadState()
+	if err != nil {
+		t.Fatalf("load state: %v", err)
+	}
+	if state.SinceID != "6" {
+		t.Errorf("cursor = %q, want 6 (newest mock tweet id)", state.SinceID)
+	}
+}
+
+func TestProjectRunSkipsWhenNothingKept(t *testing.T) {
+	t.Setenv("AUTOMATION_ROOT", t.TempDir())
+
+	fake := &fakeClient{}
+	sink := &fakeSink{}
+
+	var buf bytes.Buffer
+	runTime := &runner.Runtime{DryRun: false, Log: log.New(&buf, "", 0), ProjectDir: "."}
+
+	p := &project{client: fake, source: quietSource{}, sinks: []sinks.Sink{sink}}
+
+	if err := p.Run(context.Background(), runTime); err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+
+	if fake.gotReq.Prompt != "" {
+		t.Errorf("LLM was called even though nothing was kept")
+	}
+	if len(sink.delivered) != 0 {
+		t.Errorf("delivered %d messages, want 0", len(sink.delivered))
+	}
+
+	state, err := loadState()
+	if err != nil {
+		t.Fatalf("load state: %v", err)
+	}
+
+	if state.SinceID != "99" {
+		t.Errorf("cursor = %q, want 99 (newest quiet source tweet id)", state.SinceID)
 	}
 }

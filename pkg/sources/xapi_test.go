@@ -10,8 +10,11 @@ import (
 
 func TestXAPIFetch(t *testing.T) {
 	var gotAuth, gotPath, gotUserFields, gotExpansions string
+	sawSinceID := false
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		sawSinceID = r.URL.Query().Has("since_id")
 
 		gotAuth = r.Header.Get("Authorization")
 		gotPath = r.URL.Path
@@ -73,5 +76,28 @@ func TestXAPIFetch(t *testing.T) {
 	if gotExpansions != "author_id" {
 		t.Errorf("expansions = %q, want author_id", gotExpansions)
 	}
+	if sawSinceID {
+		t.Errorf("since_id is sent even though SinceID is empty")
+	}
 
+}
+
+func TestXAPIFetchSinceID(t *testing.T) {
+	var gotSinceID string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotSinceID = r.URL.Query().Get("since_id")
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"data": [], "includes": {"users": []}}`)
+	}))
+	defer server.Close()
+
+	x := XAPI{BearerToken: "test-token", ListID: "12345", BaseURL: server.URL, SinceID: "2072532278476148881"}
+
+	if _, err := x.Fetch(context.Background()); err != nil {
+		t.Fatalf("Fetch returned error: %v", err)
+	}
+	if gotSinceID != "2072532278476148881" {
+		t.Errorf("since_id = %q, want 2072532278476148881", gotSinceID)
+	}
 }

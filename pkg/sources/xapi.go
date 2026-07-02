@@ -17,6 +17,7 @@ const defaultXAPIBaseURL = "https://api.x.com/2"
 type XAPI struct {
 	BearerToken string
 	ListID      string
+	SinceID     string       // fetch tweets newer than this ID
 	BaseURL     string       // defaults to defaultXAPIBaseURL
 	HTTPClient  *http.Client // defaults to a client with sane timeout
 }
@@ -60,6 +61,10 @@ func (x XAPI) Fetch(ctx context.Context) ([]Tweet, error) {
 	q.Set("tweet.fields", "public_metrics")
 	q.Set("expansions", "author_id")
 	q.Set("user.fields", "name,username")
+
+	if x.SinceID != "" {
+		q.Set("since_id", x.SinceID)
+	}
 
 	endpoint := fmt.Sprintf("%s/lists/%s/tweets?%s", base, x.ListID, q.Encode())
 
