@@ -1,7 +1,8 @@
 {
     "minEngagement": 100,
     "topics": ["AI", "Econ", "Crypto", "Stocks", "World News"],
-    "source": "mock",
+    "source": "x",
+    "listID": "2072471988908838939", 
     "provider": "anthropic",
     "model": "claude-haiku-4-5",
     "deliverTo": ["telegram", "console"]
