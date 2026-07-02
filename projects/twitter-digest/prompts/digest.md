@@ -9,6 +9,8 @@ Topics:
 
 For each post write one tight sentence capturing its point, then cite the autor handle and URL. Do not invent facts; use only what is in the posts.
 
+If several posts cover the same story or event, merge them into ONE bullet and cite every merged post's handle and URL. Each story appears exactly once in the digest, in the single best-fitting selection.
+
 
 Posts (JSON):
 {{TWEETS_JSON}}

@@ -55,7 +55,7 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 	}
 
 	// process (no tokens) + reason (heuristic, no tokens)
-	kept := filter(tweets, cfg.MinEngagement)
+	kept := filter(tweets, cfg.MinEngagement, cfg.MaxPerAuthor)
 
 	if len(kept) == 0 {
 		runTime.Log.Println("[twitter-digest] no tweets to digest - skipping send")

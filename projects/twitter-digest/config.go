@@ -2,6 +2,7 @@ package twitterdigest
 
 type Config struct {
 	MinEngagement int      `json:"minEngagement"`
+	MaxPerAuthor  int      `json:"maxPerAuthor"`
 	Topics        []string `json:"topics"`
 	Source        string   `json:"source"`
 	ListID        string   `json:"listId"`
