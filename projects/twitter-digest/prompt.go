@@ -14,7 +14,7 @@ import (
 // buildPrompt loads prompts/digest.md and fills in the date, topics,
 // and a slimmed-down JSON of the kept tweets. Only the fields the model needs are
 // sent, to keep the prompt (and token cost) small.
-func buildPrompt(projectDir string, topics []string, tweets []sources.Tweet) (string, error) {
+func buildPrompt(projectDir string, topics []Topic, tweets []sources.Tweet) (string, error) {
 	tmpl, err := os.ReadFile(filepath.Join(projectDir, "prompts", "digest.md"))
 
 	if err != nil {
@@ -41,7 +41,15 @@ func buildPrompt(projectDir string, topics []string, tweets []sources.Tweet) (st
 
 	out := string(tmpl)
 	out = strings.ReplaceAll(out, "{{DATE}}", time.Now().Format("2006-01-02"))
-	out = strings.ReplaceAll(out, "{{TOPICS}}", "- "+strings.Join(topics, "\n- "))
+
+	topicLines := make([]string, len(topics))
+	for i, topic := range topics {
+		topicLines[i] = "- " + topic.Name
+		if topic.Description != "" {
+			topicLines[i] += ": " + topic.Description
+		}
+	}
+	out = strings.ReplaceAll(out, "{{TOPICS}}", strings.Join(topicLines, "\n"))
 	out = strings.ReplaceAll(out, "{{TWEETS_JSON}}", string(tweetsJSON))
 
 	return out, nil

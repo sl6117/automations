@@ -1,6 +1,16 @@
 {
     "minEngagement": 100,
-    "topics": ["AI", "Econ", "Crypto", "Stocks", "World News"],
+    "topics": [
+        {"name": "AI", "description": "AI models, research, agents, developer tooling, and AI industry news"},
+        {"name": "Econ", "description": "macroeconomics: inflation, rates, central banks, jobs, trade, housing. NOT politician's personal finances or scandals - those are Politics."},
+        {"name": "Politics", "description": "Polictical news. Also about personal incidients of politicians. News about legislation, policies should go into specific policy area buckets, not this bucket."},
+        {"name": "Crypto", "description": "Cryptocurrencies, blockchains, DeFi, crypto ETFs and regulation. News about adoption, and market events."},
+        {"name": "Stocks", "description": "equities, earnings, valuations, notable market moves"},
+        {"name": "World News", "description": "geopolitics, elections, government policy, international events, global issues"},
+        {"name": "Tech", "description": "innovation, startups, VC, venture capital, and technology industry news"},
+        {"name": "Science", "description": "science news: physics, biology, chemistry, earth science, space, and other scientific discoveries"},
+        {"name": "Conspiracy", "description": "conspiracy theories, hoaxes, and urban legends. Bring the wild ones in. Disregard the engagement count for these."}
+    ],
     "source": "x",
     "listID": "2072471988908838939", 
     "provider": "anthropic",
@@ -8,3 +18,4 @@
     "maxPerAuthor": 3,
     "deliverTo": ["telegram", "console"]
 }
+

@@ -12,7 +12,7 @@ func TestSummarize(t *testing.T) {
 		{ID: "2", Text: "Crypto markets rally"},
 		{ID: "3", Text: "random thoughts"},
 	}
-	topics := []string{"AI", "Crypto"}
+	topics := []Topic{{Name: "AI"}, {Name: "Crypto"}}
 
 	d := summarize(in, topics)
 

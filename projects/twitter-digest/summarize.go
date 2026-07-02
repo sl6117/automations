@@ -23,12 +23,12 @@ type Digest struct {
 // unmatched tweets go into the "otherBucket" bucket.
 // No LLM/ no tokens
 // the real model replaces this with smarter categorization + short summaries
-func summarize(tweets []sources.Tweet, topics []string) Digest {
+func summarize(tweets []sources.Tweet, topics []Topic) Digest {
 	buckets := make([]Bucket, len(topics))
 
 	// initialize all buckets
 	for i, topic := range topics {
-		buckets[i] = Bucket{Topic: topic}
+		buckets[i] = Bucket{Topic: topic.Name}
 	}
 
 	otherBucket := Bucket{Topic: "Other"}
@@ -38,7 +38,7 @@ func summarize(tweets []sources.Tweet, topics []string) Digest {
 		matched := false
 
 		for i, topic := range topics {
-			if strings.Contains(text, strings.ToLower(topic)) {
+			if strings.Contains(text, strings.ToLower(topic.Name)) {
 				buckets[i].Tweets = append(buckets[i].Tweets, t)
 				matched = true
 				break
