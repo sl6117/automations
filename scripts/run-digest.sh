@@ -27,7 +27,17 @@ mkdir -p logs
 
 {
     echo "===== digest run: $(date -u +%Y-%m-%dT%H:%M:%SZ) ====="
-    ./bin/auto run twitter-digest
+    # ./bin/auto run twitter-digest
+    ok=0
+    for attempt in 1 2 3; do
+        if ./bin/auto run twitter-digest; then
+            ok=1
+            break
+        fi
+        echo "attmept $attempt failed; retrying in 60s..."
+        sleep 60
+    done
+    [ "ok" = "1" ]
     echo "===== end run ====="
 } >> logs/launchd-digest.log 2>&1
 
