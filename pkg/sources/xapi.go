@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 )
 
@@ -17,7 +18,7 @@ const defaultXAPIBaseURL = "https://api.x.com/2"
 type XAPI struct {
 	BearerToken string
 	ListID      string
-	SinceID     string       // fetch tweets newer than this ID
+	SinceID     string       // client-side cursor: drop tweets at/below this id (endpoint has no since_id param)
 	BaseURL     string       // defaults to defaultXAPIBaseURL
 	HTTPClient  *http.Client // defaults to a client with sane timeout
 }
@@ -71,9 +72,9 @@ func (x XAPI) Fetch(ctx context.Context) ([]Tweet, error) {
 	q.Set("expansions", "author_id,referenced_tweets.id,referenced_tweets.id.author_id")
 	q.Set("user.fields", "name,username")
 
-	if x.SinceID != "" {
-		q.Set("since_id", x.SinceID)
-	}
+	// if x.SinceID != "" {
+	// 	q.Set("since_id", x.SinceID)
+	// }
 
 	endpoint := fmt.Sprintf("%s/lists/%s/tweets?%s", base, x.ListID, q.Encode())
 
@@ -127,6 +128,9 @@ func (x XAPI) Fetch(ctx context.Context) ([]Tweet, error) {
 	tweets := make([]Tweet, 0, len(parsed.Data))
 
 	for _, d := range parsed.Data {
+		if x.SinceID != "" && !idNewer(d.ID, x.SinceID) {
+			continue
+		}
 		user := users[d.AuthorID]
 
 		text := d.Text
@@ -159,4 +163,14 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n]
+}
+
+func idNewer(a, b string) bool {
+	na, errA := strconv.ParseUint(a, 10, 64)
+	nb, errB := strconv.ParseUint(b, 10, 64)
+
+	if errA != nil || errB != nil {
+		return true
+	}
+	return na > nb
 }

@@ -82,23 +82,54 @@ func TestXAPIFetch(t *testing.T) {
 
 }
 
-func TestXAPIFetchSinceID(t *testing.T) {
-	var gotSinceID string
+// func TestXAPIFetchSinceID(t *testing.T) {
+// 	var gotSinceID string
 
+// 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+// 		gotSinceID = r.URL.Query().Get("since_id")
+// 		w.Header().Set("Content-Type", "application/json")
+// 		io.WriteString(w, `{"data": [], "includes": {"users": []}}`)
+// 	}))
+// 	defer server.Close()
+
+// 	x := XAPI{BearerToken: "test-token", ListID: "12345", BaseURL: server.URL, SinceID: "2072532278476148881"}
+
+//		if _, err := x.Fetch(context.Background()); err != nil {
+//			t.Fatalf("Fetch returned error: %v", err)
+//		}
+//		if gotSinceID != "2072532278476148881" {
+//			t.Errorf("since_id = %q, want 2072532278476148881", gotSinceID)
+//		}
+//	}
+func TestXAPIFetchSinceID(t *testing.T) {
+	sawSinceID := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotSinceID = r.URL.Query().Get("since_id")
+		sawSinceID = r.URL.Query().Has("since_id")
 		w.Header().Set("Content-Type", "application/json")
-		io.WriteString(w, `{"data": [], "includes": {"users": []}}`)
+		io.WriteString(w, `{
+			"data": [
+				{"id": "300", "text": "newer than cursor", "author_id": "42",
+				 "public_metrics": {"like_count": 1, "retweet_count": 0}},
+				{"id": "200", "text": "exactly the cursor", "author_id": "42",
+				 "public_metrics": {"like_count": 1, "retweet_count": 0}},
+				{"id": "100", "text": "older than cursor", "author_id": "42",
+				 "public_metrics": {"like_count": 1, "retweet_count": 0}}
+			],
+			"includes": {"users": [{"id": "42", "name": "Author", "username": "author"}]}
+		}`)
 	}))
 	defer server.Close()
-
-	x := XAPI{BearerToken: "test-token", ListID: "12345", BaseURL: server.URL, SinceID: "2072532278476148881"}
-
-	if _, err := x.Fetch(context.Background()); err != nil {
+	x := XAPI{BearerToken: "test-token", ListID: "12345", BaseURL: server.URL, SinceID: "200"}
+	tweets, err := x.Fetch(context.Background())
+	if err != nil {
 		t.Fatalf("Fetch returned error: %v", err)
 	}
-	if gotSinceID != "2072532278476148881" {
-		t.Errorf("since_id = %q, want 2072532278476148881", gotSinceID)
+	// the real endpoint 400s on since_id — it must never be sent
+	if sawSinceID {
+		t.Error("since_id param sent; list-tweets endpoint rejects it, filter client-side")
+	}
+	if len(tweets) != 1 || tweets[0].ID != "300" {
+		t.Errorf("got %d tweets (first id %q), want only id 300", len(tweets), tweets[0].ID)
 	}
 }
 
