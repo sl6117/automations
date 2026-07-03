@@ -75,6 +75,27 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 		return err
 	}
 
+	failures, coverage := evalDigest(message, kept, cfg.Topics)
+	runTime.Log.Printf("[twitter-digest] eval: %s", coverage)
+
+	for _, f := range failures {
+		runTime.Log.Printf("[twitter-digest] eval failure: %s", f)
+	}
+
+	if !runTime.DryRun {
+		if err := saveArtifact(Artifact{
+			Model:        cfg.Model,
+			Kept:         kept,
+			Digest:       message,
+			InputTokens:  usage.InputTokens,
+			OutputTokens: usage.OutputTokens,
+			EvalFailures: failures,
+			EvalCoverage: coverage,
+		}); err != nil {
+			return fmt.Errorf("save artifact: %w", err)
+		}
+	}
+
 	if _, err := obs.LogRun(obs.Run{
 		Project:      p.Name(),
 		Model:        cfg.Model,
