@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"log"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -138,5 +140,60 @@ func TestProjectRunSkipsWhenNothingKept(t *testing.T) {
 
 	if state.SinceID != "99" {
 		t.Errorf("cursor = %q, want 99 (newest quiet source tweet id)", state.SinceID)
+	}
+}
+
+func TestProjectRunRoutesSubscribers(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("AUTOMATION_ROOT", root)
+	dir := filepath.Join(root, "projects", "twitter-digest")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	subsJSON := `[
+		{"name": "alice", "sink": "console", "topics": ["AI"]},
+		{"name": "bob", "sink": "console", "topics": ["*"]}
+	]`
+
+	if err := os.WriteFile(filepath.Join(dir, "subscribers.json"), []byte(subsJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	fake := &fakeClient{resp: ai.Response{
+		Text:  "## AI\n- ai story\n\n## Other\n- misc story",
+		Model: "claude-haiku-4-5",
+		Usage: ai.Usage{InputTokens: 10, OutputTokens: 20},
+	}}
+
+	got := map[string]*fakeSink{}
+
+	p := &project{
+		client: fake,
+		source: sources.Mock{},
+		sinkFor: func(sub Subscriber, cfg Config, rt *runner.Runtime) (sinks.Sink, error) {
+			s := &fakeSink{}
+			got[sub.Name] = s
+			return s, nil
+		},
+	}
+
+	var buf bytes.Buffer
+	runTime := &runner.Runtime{DryRun: false, Log: log.New(&buf, "", 0), ProjectDir: "."}
+
+	if err := p.Run(context.Background(), runTime); err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+
+	alice := got["alice"]
+	if alice == nil || len(alice.delivered) != 1 ||
+		!strings.Contains(alice.delivered[0], "ai story") ||
+		strings.Contains(alice.delivered[0], "misc story") {
+		t.Errorf("alice (AI only) got wrong digest: %#v", alice)
+	}
+	bob := got["bob"]
+	if bob == nil || len(bob.delivered) != 1 ||
+		!strings.Contains(bob.delivered[0], "ai story") ||
+		!strings.Contains(bob.delivered[0], "misc story") {
+		t.Errorf("bob (wildcard) got wrong digest: %#v", bob)
 	}
 }

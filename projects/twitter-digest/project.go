@@ -2,6 +2,7 @@ package twitterdigest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,9 +25,10 @@ func init() {
 }
 
 type project struct {
-	client ai.Client
-	source sources.Source
-	sinks  []sinks.Sink
+	client  ai.Client
+	source  sources.Source
+	sinks   []sinks.Sink
+	sinkFor func(Subscriber, Config, *runner.Runtime) (sinks.Sink, error)
 }
 
 func (p *project) Name() string { return "twitter-digest" }
@@ -112,19 +114,75 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 		return nil
 	}
 
-	deliverSinks := p.sinks
-	if deliverSinks == nil {
-		selected, err := selectSinks(cfg, runTime)
-		if err != nil {
-			return err
+	// deliverSinks := p.sinks
+	// if deliverSinks == nil {
+	// 	selected, err := selectSinks(cfg, runTime)
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// 	deliverSinks = selected
+	// }
+
+	// for _, sink := range deliverSinks {
+	// 	if err := sink.Deliver(ctx, message); err != nil {
+	// 		return fmt.Errorf("delivery via %s: %w", sink.Name(), err)
+	// 	}
+	// }
+	subs, err := loadSubscribers()
+	if err != nil {
+		return err
+	}
+	if len(subs) == 0 {
+		// legacy mode: no subscribers.json, everyone gets everything
+		deliverSinks := p.sinks
+		if deliverSinks == nil {
+			selected, err := selectSinks(cfg, runTime)
+			if err != nil {
+				return err
+			}
+			deliverSinks = selected
 		}
-		deliverSinks = selected
+		for _, sink := range deliverSinks {
+			if err := sink.Deliver(ctx, message); err != nil {
+				return fmt.Errorf("delivery via %s: %w", sink.Name(), err)
+			}
+		}
+		return advanceCursor(runTime, state, tweets)
 	}
 
-	for _, sink := range deliverSinks {
-		if err := sink.Deliver(ctx, message); err != nil {
-			return fmt.Errorf("delivery via %s: %w", sink.Name(), err)
+	sinkFor := p.sinkFor
+	if sinkFor == nil {
+		sinkFor = subscriberSink
+	}
+
+	sections := splitSections(message)
+	delivered := 0
+	var deliveryErrs []error
+
+	for _, sub := range subs {
+		personal := assembleFor(sub, sections)
+		if personal == "" {
+			runTime.Log.Printf("[twitter-digest] subscriber %s: no matching content", sub.Name)
+			continue
 		}
+		sink, err := sinkFor(sub, cfg, runTime)
+		if err != nil {
+			deliveryErrs = append(deliveryErrs, err)
+			continue
+		}
+		if err := sink.Deliver(ctx, personal); err != nil {
+			deliveryErrs = append(deliveryErrs, fmt.Errorf("delivery to %s: %w", sub.Name, err))
+			continue
+		}
+		delivered++
+		runTime.Log.Printf("[twitter-digest] delivered to %s via %s", sub.Name, sub.Sink)
+	}
+
+	for _, e := range deliveryErrs {
+		runTime.Log.Printf("[twitter-digest] delivery FAILED: %v", e)
+	}
+	if delivered == 0 && len(deliveryErrs) > 0 {
+		return errors.Join(deliveryErrs...)
 	}
 	return advanceCursor(runTime, state, tweets)
 }
@@ -248,6 +306,40 @@ func selectSinks(cfg Config, runTime *runner.Runtime) ([]sinks.Sink, error) {
 		}
 	}
 	return selected, nil
+}
+
+// subscriberSink builds the delivery sink for one subscriber.
+// shared credentials (bot token, api key) come from .env; per person
+// address comes from the subscriber object
+func subscriberSink(sub Subscriber, cfg Config, runTime *runner.Runtime) (sinks.Sink, error) {
+	switch sub.Sink {
+	case "console":
+		return sinks.Console{Out: runTime.Log.Writer()}, nil
+	case "telegram":
+		token := os.Getenv("TELEGRAM_BOT_TOKEN")
+		if token == "" {
+			return nil, fmt.Errorf("subscriber %s: telegram needs TELEGRAM_BOT_TOKEN in .env", sub.Name)
+		}
+		if sub.ChatID == "" {
+			return nil, fmt.Errorf("subscriber %s: missing chatId", sub.Name)
+		}
+		return sinks.Telegram{BotToken: token, ChatID: sub.ChatID}, nil
+	case "email":
+		key := os.Getenv("RESEND_API_KEY")
+		if key == "" {
+			return nil, fmt.Errorf("subscriber %s: email needs RESEND_API_KEY in .env", sub.Name)
+		}
+		if sub.Email == "" {
+			return nil, fmt.Errorf("subscriber %s: missing email", sub.Name)
+		}
+		subject := cfg.EmailSubject
+		if subject == "" {
+			subject = "Daily X Digest"
+		}
+		return sinks.Email{APIKey: key, From: cfg.EmailFrom, To: []string{sub.Email}, Subject: subject}, nil
+	default:
+		return nil, fmt.Errorf("subscriber %s: unknown sink %q", sub.Name, sub.Sink)
+	}
 }
 
 // advanceCursor persists the newest fetched ID s.t the next run only sees newer tweets.

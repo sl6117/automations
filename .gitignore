@@ -22,3 +22,7 @@ docs/handoffs/
 
 # Compiled crunner binary (rebuilt locally; used by launchd)
 bin/
+
+# Subscriber list (names, delivery adddresses) - personnal data, local only
+**/subscribers.json
+

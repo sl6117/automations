@@ -1,0 +1,4 @@
+[
+    {"name": "me", "sink": "telegram", "chatId": "123456789", "topics": ["*"]},
+    {"name": "dad", "sink": "email", "email": "dad@example.com", "topics": ["Stocks", "World News"]}
+]
