@@ -135,15 +135,20 @@ func (x XAPI) Fetch(ctx context.Context) ([]Tweet, error) {
 
 		text := d.Text
 		for _, ref := range d.ReferencedTweets {
-			if ref.Type != "retweeted" {
-				continue
-			}
-			orig, ok := refs[ref.ID]
+
+			original, ok := refs[ref.ID]
 			if !ok {
-				continue
+				continue // referenced tweet missing from includes (Deleted/protected): keep wrapper text
 			}
-			origUser := users[orig.authorID]
-			text = "RT @" + origUser.username + ": " + orig.text
+			originalUser := users[original.authorID]
+			switch ref.Type {
+			case "retweeted":
+				text = "RT @" + originalUser.username + ": " + original.text
+			case "quoted":
+				text += "\n[quoting @" + originalUser.username + ": " + original.text + "]"
+			case "replied_to":
+				text += "\n[replying to @" + originalUser.username + ": " + original.text + "]"
+			}
 		}
 		tweets = append(tweets, Tweet{
 			ID:      d.ID,

@@ -180,3 +180,39 @@ func TestXAPIFetchExpandsRetweets(t *testing.T) {
 		t.Errorf("fallback text = %q, want truncated wrapper text", tweets[1].Text)
 	}
 }
+
+func TestXAPIFetchExpandsQuotes(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{
+			"data": [
+				{"id": "300", "text": "This changes everything for agents",
+				 "author_id": "42",
+				 "public_metrics": {"like_count": 500, "retweet_count": 30},
+				 "referenced_tweets": [{"type": "quoted", "id": "299"}]}
+			],
+			"includes": {
+				"users": [
+					{"id": "42", "name": "Commenter", "username": "commenter"},
+					{"id": "77", "name": "Original Author", "username": "orig"}
+				],
+				"tweets": [
+					{"id": "299", "text": "We are releasing a new model today", "author_id": "77"}
+				]
+			}
+		}`)
+	}))
+	defer server.Close()
+	x := XAPI{BearerToken: "test-token", ListID: "12345", BaseURL: server.URL}
+	tweets, err := x.Fetch(context.Background())
+	if err != nil {
+		t.Fatalf("Fetch returned error: %v", err)
+	}
+	if len(tweets) != 1 {
+		t.Fatalf("got %d tweets, want 1", len(tweets))
+	}
+	want := "This changes everything for agents\n[quoting @orig: We are releasing a new model today]"
+	if tweets[0].Text != want {
+		t.Errorf("quoted text = %q, want %q", tweets[0].Text, want)
+	}
+}
