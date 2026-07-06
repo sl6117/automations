@@ -17,7 +17,6 @@ binary (`auto`) runs pluggable projects behind a single `Project` interface. Pro
 - `pkg/source/` - data-source adapters (X API, mock). `pkg/sinks/` - delivery (telegram, email, console).
 - `projects/<name>/` - one automation: code, `config.json`, `prompts/`, tests.
 - `docs/decisions/` - ARCHIVED JavaScript prototype. Read-only historyl never edit it.
-( The live prompt is `projects/twitter-digest/prompts/digest.md`, NOT the one in reference/.)
 
 ## Conventions
 - Secrets only in `.env` (gitignored, loaded by direnv). Never hardcode keys. Never print secret values.

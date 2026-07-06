@@ -42,8 +42,7 @@ Projects register themselves via `init()`; adapters (sources, LLM clients, sinks
 │   └── twitter-digest/  # project #1: filter, prompt, eval, routing, state
 ├── scripts/             # run-digest.sh (launchd entry point, .env loader, retries)
 ├── docs/                # decisions, diagrams, setup notes
-├── logs/                # cost log + per-run artifacts (gitignored)
-└── reference/           # archived JS prototype this replaced
+└── logs/                # cost log + per-run artifacts (gitignored)
 ```
 
 ## Quick start
