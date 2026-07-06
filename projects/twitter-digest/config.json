@@ -16,6 +16,7 @@
     "provider": "anthropic",
     "model": "claude-haiku-4-5",
     "maxPerAuthor": 3,
-    "deliverTo": ["telegram", "console"]
+    "deliverTo": ["telegram", "console"],
+    "emailFrom": "onboarding@resend.dev"
 }
 
