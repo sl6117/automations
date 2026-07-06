@@ -1,31 +1,43 @@
 # AGENTS.md — context for AI agents working in this repo
 
 This file is the always-loaded "house rules" context. Keep it SHORT. Deep details live in
-per-project READMEs and `references/` files that are loaded only when a task needs them
+per-project docs and `docs/decisions/` that are loaded only when a task needs them
 (progressive disclosure / context-on-demand).
 
 ## What this repo is
-A personal automation foundation. Each automation is a self-contained folder under `projects/`.
-Shared building blocks live under `lib/`. Project #1 is `projects/twitter-digest`.
+A Go personal automation foundation (module `github.com/sl6117/automations`). One runner
+binary (`auto`) runs pluggable projects behind a single `Project` interface. Project #1 is
+`projects/twitter-digest`: X list -> filter -> Claude Haiku digest -> Telegram/email.
 
 ## Where things live
-- `lib/fetch/`   — data-source adapters behind one interface. Swap sources without touching project logic.
-- `lib/deliver/` — delivery adapters (telegram, console).
-- `lib/cost-log/`— append-only token/cost log + a report command.
-- `projects/<name>/` — one automation: `config.json`, `prompts/`, `references/`, `pipeline.js`, `state.json`.
-- `docs/decisions/` — why we did things (archive analysis here, not in code comments).
+- `cmd/auto/` - the runner CLI: `auto list | run <project> [--dry-run] | cost`.
+- `internal/runner/` - the `Project` contract and registry.
+- `internal/ai/` - LLM clients (Anthropic, OpenRouter).
+- `internal/obs/` - cost logging + report (`auto cost`).
+- `pkg/source/` - data-source adapters (X API, mock). `pkg/sinks/` - delivery (telegram, email, console).
+- `projects/<name>/` - one automation: code, `config.json`, `prompts/`, tests.
+- `docs/decisions/` - ARCHIVED JavaScript prototype. Read-only historyl never edit it.
+( The live prompt is `projects/twitter-digest/prompts/digest.md`, NOT the one in reference/.)
 
 ## Conventions
-- Secrets only in `.env` (gitignored). Never hardcode keys. Never print secret values.
+- Secrets only in `.env` (gitignored, loaded by direnv). Never hardcode keys. Never print secret values.
+- Personal data (caht ids, emails, `subscribers.json`) is never committed.
+`AUTOMATION_ROOT` anchors all persistent paths (state, logs, artifacts). Tests must set it: `t.Setenv("AUTOMATION_ROOT", t.TempDir(())`.
 - Config (non-secret) lives in each project's `config.json`.
 - Each pipeline is: fetch -> filter (no LLM) -> summarize (LLM) -> deliver -> log.
 - Filtering/dedup happens in plain code BEFORE the model, to minimize tokens.
 - Prefer the cheapest capable model (default: Claude Haiku). Escalate only when needed.
+- The digest prompt's output format is a contract: `## <English topic>` headers route
+  sections to subscribers. Any prompt change must preserve it.
 
 ## How to add a new project
-Copy `projects/twitter-digest/` to `projects/<new>/`, then swap the fetch adapter and the
-prompt. The filter/deliver/log plumbing is reusable as-is.
+Implement `runner.Project` (`Name()`, `Run()`), call `runner.Register` in an `init()`,
+and blank-import the package in `cmd/auto/main.go`.
+
 
 ## Running
-- Offline demo (no credentials, no tokens): `npm run digest:mock`
-- Real run: fill `.env`, set `FETCH_SOURCE=bird`, `DIGEST_DRY_RUN=0`, then `npm run digest`.
+- Build `go build -o bin/auto ./cmd/auto` - REQUIRED after code changes; launchd runs the prebuilt `bin/auto`, so a stale binary silently runs old behavior.
+- Try it: `bin/auto run twitter-digest --dry-run` (no sends, no state writes).
+- Never run the mock source without `--dry-run`: it overwrites the real fetch cursor.
+- Tests: `go test ./...`.
+- Scheduled daily 09:00 via launchd (`scripts/schedule-launchd.sh`); logs in `logs/`.
