@@ -1,0 +1,47 @@
+flowchart TB
+    subgraph SCHED["Scheduling (laptop, until AWS)"]
+        LAUNCHD["launchd plist<br/>com.thomaslee.twitter-digest<br/>daily 09:00, fires on wake"]
+        SCRIPT["scripts/run-digest.sh<br/>loads .env, sets AUTOMATION_ROOT,<br/>3 attempts w/ 60s sleep"]
+        LAUNCHD --> SCRIPT
+    end
+
+    subgraph RUNNER["Runner layer (generic, project-agnostic)"]
+        CLI["cmd/auto (bin/auto)<br/>list | run | cost"]
+        CONTRACT["internal/runner<br/>Project interface: Name() + Run(ctx, *Runtime)<br/>registry via init() blank imports"]
+        CLI -->|"auto run twitter-digest"| CONTRACT
+    end
+
+    SCRIPT -->|"./bin/auto run twitter-digest"| CLI
+
+    subgraph PROJ["projects/twitter-digest (one implementation of the contract)"]
+        RUN["project.Run()<br/>orchestrates the pipeline"]
+        FILTER["filter.go<br/>engagement / dedupe / author cap<br/>(plain code, zero tokens)"]
+        DIGEST["digest()<br/>prompt.go builds from prompts/digest.md<br/>fallback: summarize.go + render.go heuristic"]
+        EVAL["eval.go — deterministic checks<br/>artifact.go — logs/runs/*.json"]
+        ROUTE["sections.go splitSections<br/>subscribers.go assembleFor"]
+    end
+
+    CONTRACT -->|"dispatch"| RUN
+    RUN --> FILTER --> DIGEST --> EVAL --> ROUTE
+
+    subgraph ADAPT["Swappable adapters (the DI seams)"]
+        SRC["pkg/sources<br/>Mock | XAPI (client-side since_id cursor)"]
+        AI["internal/ai<br/>OpenRouter | Anthropic (Haiku)"]
+        SNK["pkg/sinks<br/>Console | Telegram | Email (Resend)"]
+    end
+
+    RUN -.->|"seam 1: source"| SRC
+    DIGEST -.->|"seam 2: client"| AI
+    ROUTE -.->|"seam 3: sinks (legacy)<br/>seam 4: sinkFor (routing)"| SNK
+
+    subgraph STATE["Persistent state (all anchored on AUTOMATION_ROOT)"]
+        SJ["state.json — since_id cursor"]
+        SUBS["subscribers.json — gitignored, personal data"]
+        LOGS["logs/cost-log.jsonl (obs.LogRun)<br/>logs/runs/*.json (artifacts)<br/>logs/launchd-digest.log"]
+        ENV[".env — secrets, gitignored"]
+    end
+
+    RUN <--> SJ
+    ROUTE --> SUBS
+    RUN --> LOGS
+    SCRIPT --> ENV

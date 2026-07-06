@@ -1,0 +1,20 @@
+flowchart TB
+    A["load config.json + state.json (cursor)"] --> B["source.Fetch()<br/>XAPI: fetch up to 50, drop IDs <= cursor client-side,<br/>expand RTs to full original text"]
+    B --> C["filter: minEngagement=100, exact-dup, maxPerAuthor=3"]
+    C --> D{"anything kept?"}
+    D -->|"no"| Z1["log 'skipping send', advance cursor, done"]
+    D -->|"yes"| E{"dry run or no API key?"}
+    E -->|"yes"| F["heuristic: summarize + render<br/>(no tokens)"]
+    E -->|"no"| G["buildPrompt -> Haiku<br/>temp 0.2, max 1500 tokens"]
+    F --> H
+    G --> H["evalDigest: hallucinated/duplicate URLs,<br/>unknown sections, coverage — observability only, never blocks"]
+    H --> I["saveArtifact (skipped on dry run) + obs.LogRun (cost)"]
+    I --> J{"subscribers.json exists?"}
+    J -->|"no"| K["legacy: deliverTo sinks get full digest"]
+    J -->|"yes"| L["splitSections on '## Topic' headers"]
+    L --> M["per subscriber: assembleFor filters sections<br/>('*' = all topics incl. Other; named topics exclude Other)<br/>empty result = skip, don't send a shell"]
+    M --> N["sinkFor builds their sink; deliver;<br/>continue past per-subscriber failures"]
+    N --> O{"delivered to at least one?"}
+    O -->|"yes"| P["advance cursor to newest fetched ID"]
+    O -->|"no, and there were errors"| Q["return joined errors — cursor stays put,<br/>next run retries the same tweets"]
+    K --> P

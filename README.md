@@ -1,55 +1,89 @@
 # Personal Automation Foundation
 
-A small, reusable "automation OS" for your machine. You add automations as self-contained
-projects; the shared plumbing (data fetching, filtering, delivery, cost logging) is reused
-across all of them.
+A small, reusable "automation OS" written in Go: one runner binary, pluggable automation projects
+behind a single interface, and shared adapters for data sources, LLM providers, and delivery channels.
+Built as a learning project with production habits - tests, cost logging, run artifacts, and deterministic evals
 
-**Project #1:** a 9am Twitter/X digest that pulls a curated list, filters noise in plain code,
-summarizes the rest with a cheap LLM into topic buckets (AI / econ / crypto / ...), keeps source
-links for verifiability, and delivers to Telegram.
+**Project #1 — `twitter-digest`:** a daily 9am Twitter/X list briefing. Posts are fetched, filtered in plain code before model sees them.
+summarized into topic sections by Claude Haiku, checked by a deterministic eval, and routed to subscribers - each with their own delivery channel
+(Telegram / email), topic selection, and output language.
+
+## Architecture
+![Architecture](docs/diagrams/view1-architecture-pieces.png)
+One digest run, end to end:
+
+![Run flow](docs/diagrams/view2-run-flow.png)
+The runner knows nothing about any project except the contract:
+
+```go
+type Project interface {
+    Name() string
+    Run(ctx context.Context, rt *Runtime) error
+}
+```
+
+Projects register themselves via `init()`; adapters (sources, LLM clients, sinks) hang off small interfaces so every pipeline stage can be swapped - or faked in tests
+
 
 ## Layout
 ```
 .
-├── AGENTS.md                 # always-loaded context for AI agents (short)
-├── .env.example              # copy to .env and fill in (gitignored)
-├── .envrc                    # direnv: auto-loads .env when you cd here
-├── lib/
-│   ├── fetch/                # data-source interface + adapters (bird, mock)
-│   ├── deliver/              # telegram, console
-│   └── cost-log/             # token/cost logging + report
+├── cmd/auto/            # runner CLI: auto list | run <project> [--dry-run] | cost
+├── internal/
+│   ├── runner/          # Project contract + registry
+│   ├── ai/              # LLM clients (Anthropic, OpenRouter)
+│   ├── obs/             # cost log + report
+│   └── config/          # per-project config.json loading
+├── pkg/
+│   ├── sources/         # data sources: X API v2 (paginated), mock
+│   └── sinks/           # delivery: telegram (HTML), email (Resend), console
 ├── projects/
-│   └── twitter-digest/       # project #1
-│       ├── config.json
-│       ├── prompts/digest.md
-│       ├── references/
-│       ├── pipeline.js
-│       └── state.json        # gitignored, created at first run
-├── docs/decisions/           # architecture/decision notes
-└── logs/                     # run + cost logs (gitignored)
+│   ├── hello/           # smallest possible project (template)
+│   └── twitter-digest/  # project #1: filter, prompt, eval, routing, state
+├── scripts/             # run-digest.sh (launchd entry point, .env loader, retries)
+├── docs/                # decisions, diagrams, setup notes
+├── logs/                # cost log + per-run artifacts (gitignored)
+└── reference/           # archived JS prototype this replaced
 ```
 
 ## Quick start
-1. `nvm use 22` (Node 22+ required).
-2. `cp .env.example .env` and fill in values (or leave defaults for the offline demo).
-3. Allow direnv once: `direnv allow`.
-4. Offline demo (no keys, no tokens, no network):
-
 ```bash
-npm run digest:mock
+go build -o bin/auto ./cmd/auto
+./bin/auto list
+./bin/auto run twitter-digest --dry-run   # no delivery, no cursor writes
+./bin/auto cost                           # spend report from logs/cost-log.jsonl
 ```
 
-5. Real run: set `FETCH_SOURCE=bird`, `DIGEST_DRY_RUN=0`, `DELIVER_TO=telegram` in `.env`, then:
+offline demo without any credentials: set `"source": "mock"` in `projects/twitter-digest/config.json` and dry-run -canned tweets 
+go trhough the full filter + heuristic-summary path with zero network calls.
 
-```bash
-npm run digest
+## Subscribers
+
+`projects/twitter-digest/subscribers.json` (gitignored - personal data; see `subscribers.example.json`)
+maps each recipient to a sink, topics, and language:
+
+```json
+[
+  {"name": "me", "sink": "telegram", "chatId": "...", "topics": ["*"]},
+  {"name": "friend", "sink": "email", "email": "...", "topics": ["AI", "Tech"], "language": "Korean"}
+]
 ```
+
+One LLM call per distint language, not per subscriber. Topic headers stay in English in every language
+- they are routhing keys. Per-subscriber failures never block other deliveries;
+the fetch cursor only advances when at least someone gets a digest
 
 ## Design principles
-- **Filter before the model.** Engagement + dedup happen in code, so few tokens hit the LLM.
-- **Cheapest capable model.** Default Claude Haiku; escalate only when a task needs it.
-- **Context on demand.** `AGENTS.md` stays small; `references/` is loaded only when relevant.
-- **Swappable sources.** `bird` now, Xquik later, by changing one env var.
-- **Portable.** Runs locally; lift-and-shift to a VPS later for guaranteed scheduling.
+- **Filter before the model.** Engagement + dedup + author caps run in plain Go, the LLM only sees posts worth paying
+- **Interfaces at eery seam.** Source, LLM client, and sinks are injected on the project struct; the whole test suite runs without touching the network.
+- **Trust but verify.** Every run writes an artifact (Exact model input and output) and a deterministic eval checks for hallucinated URLs, duplicate stories, and unknown sections - observability only, never blocking delivery.
+- **Cost is a feature.** Every model call lands in an append-only cost log; `auto cost` reports totals per project.
+- **State is explicit.** A since-ID cursor in `state.json` makes runs idempotent; all persistent paths anchor on `AUTOMATION_ROOT` so test can't pollute real state.
+
+## Roadmap
+- Storage interface over state/artifact/subscribers (filesystem now; S3/DynamoDB next)
+- AWS Lambda + EventBridge deployment via CDK - laptop-free scheduling
+- LLM-judge eval tier over accumulated run artifacts
+- More projects on the same runner
 
 See `docs/decisions/` for the reasoning behind these choices.
