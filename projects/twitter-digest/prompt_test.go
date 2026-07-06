@@ -12,7 +12,7 @@ func TestBuildPrompt(t *testing.T) {
 		{Author: "Dario Amodei", Handle: "@darioa", Text: "AI will be powerful", URL: "https://x.com/i/3"},
 	}
 
-	got, err := buildPrompt(".", []Topic{{Name: "AI", Description: "models and agents"}, {Name: "Crypto"}}, tweets)
+	got, err := buildPrompt(".", []Topic{{Name: "AI", Description: "models and agents"}, {Name: "Crypto"}}, tweets, "English")
 	if err != nil {
 		t.Fatalf("buildPrompt error: %v", err)
 	}

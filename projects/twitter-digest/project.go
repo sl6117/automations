@@ -72,29 +72,56 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 
 	runTime.Log.Printf("[twitter-digest] %d fetched -> %d kept", len(tweets), len(kept))
 
-	message, usage, err := p.digest(ctx, runTime, cfg, kept)
+	subs, err := loadSubscribers()
 	if err != nil {
 		return err
 	}
 
-	failures, coverage := evalDigest(message, kept, cfg.Topics)
-	runTime.Log.Printf("[twitter-digest] eval: %s", coverage)
+	languages := []string{"English"}
 
-	for _, f := range failures {
-		runTime.Log.Printf("[twitter-digest] eval failure: %s", f)
+	if len(subs) > 0 {
+		seen := map[string]bool{}
+		languages = languages[:0]
+
+		for _, sub := range subs {
+			lang := sub.language()
+
+			if !seen[lang] {
+				seen[lang] = true
+				languages = append(languages, lang)
+			}
+		}
 	}
 
-	if !runTime.DryRun {
-		if err := saveArtifact(Artifact{
-			Model:        cfg.Model,
-			Kept:         kept,
-			Digest:       message,
-			InputTokens:  usage.InputTokens,
-			OutputTokens: usage.OutputTokens,
-			EvalFailures: failures,
-			EvalCoverage: coverage,
-		}); err != nil {
-			return fmt.Errorf("save artifact: %w", err)
+	digests := make(map[string]string, len(languages))
+	var total ai.Usage
+
+	for _, lang := range languages {
+		message, usage, err := p.digest(ctx, runTime, cfg, kept, lang)
+		if err != nil {
+			return err
+		}
+		digests[lang] = message
+		total.InputTokens += usage.InputTokens
+		total.OutputTokens += usage.OutputTokens
+		failures, coverage := evalDigest(message, kept, cfg.Topics)
+		runTime.Log.Printf("[twitter-digest] eval (%s): %s", lang, coverage)
+		for _, f := range failures {
+			runTime.Log.Printf("[twitter-digest] eval failure (%s): %s", lang, f)
+		}
+		if !runTime.DryRun {
+			if err := saveArtifact(Artifact{
+				Model:        cfg.Model,
+				Language:     lang,
+				Kept:         kept,
+				Digest:       message,
+				InputTokens:  usage.InputTokens,
+				OutputTokens: usage.OutputTokens,
+				EvalFailures: failures,
+				EvalCoverage: coverage,
+			}); err != nil {
+				return fmt.Errorf("save artifact: %w", err)
+			}
 		}
 	}
 
@@ -102,36 +129,19 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 		Project:      p.Name(),
 		Model:        cfg.Model,
 		DryRun:       runTime.DryRun,
-		InputTokens:  usage.InputTokens,
-		OutputTokens: usage.OutputTokens,
+		InputTokens:  total.InputTokens,
+		OutputTokens: total.OutputTokens,
 		ItemCount:    len(kept),
 	}); err != nil {
 		return fmt.Errorf("log run: %w", err)
 	}
-
 	if runTime.DryRun {
-		runTime.Log.Println("[twitter-digest] dry-run: would have delivered:", message)
+		for _, lang := range languages {
+			runTime.Log.Println("[twitter-digest] dry-run: would have delivered ("+lang+"):", digests[lang])
+		}
 		return nil
 	}
 
-	// deliverSinks := p.sinks
-	// if deliverSinks == nil {
-	// 	selected, err := selectSinks(cfg, runTime)
-	// 	if err != nil {
-	// 		return err
-	// 	}
-	// 	deliverSinks = selected
-	// }
-
-	// for _, sink := range deliverSinks {
-	// 	if err := sink.Deliver(ctx, message); err != nil {
-	// 		return fmt.Errorf("delivery via %s: %w", sink.Name(), err)
-	// 	}
-	// }
-	subs, err := loadSubscribers()
-	if err != nil {
-		return err
-	}
 	if len(subs) == 0 {
 		// legacy mode: no subscribers.json, everyone gets everything
 		deliverSinks := p.sinks
@@ -143,7 +153,7 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 			deliverSinks = selected
 		}
 		for _, sink := range deliverSinks {
-			if err := sink.Deliver(ctx, message); err != nil {
+			if err := sink.Deliver(ctx, digests["English"]); err != nil {
 				return fmt.Errorf("delivery via %s: %w", sink.Name(), err)
 			}
 		}
@@ -155,12 +165,16 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 		sinkFor = subscriberSink
 	}
 
-	sections := splitSections(message)
+	sections := make(map[string][]Section, len(digests))
+
+	for lang, message := range digests {
+		sections[lang] = splitSections(message)
+	}
 	delivered := 0
 	var deliveryErrs []error
 
 	for _, sub := range subs {
-		personal := assembleFor(sub, sections)
+		personal := assembleFor(sub, sections[sub.language()])
 		if personal == "" {
 			runTime.Log.Printf("[twitter-digest] subscriber %s: no matching content", sub.Name)
 			continue
@@ -187,7 +201,7 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 	return advanceCursor(runTime, state, tweets)
 }
 
-func (p *project) digest(ctx context.Context, runTime *runner.Runtime, cfg Config, kept []sources.Tweet) (string, ai.Usage, error) {
+func (p *project) digest(ctx context.Context, runTime *runner.Runtime, cfg Config, kept []sources.Tweet, language string) (string, ai.Usage, error) {
 
 	client := p.client
 
@@ -205,7 +219,7 @@ func (p *project) digest(ctx context.Context, runTime *runner.Runtime, cfg Confi
 		}
 		return render(summarize(kept, cfg.Topics)), ai.Usage{}, nil
 	}
-	prompt, err := buildPrompt(runTime.ProjectDir, cfg.Topics, kept)
+	prompt, err := buildPrompt(runTime.ProjectDir, cfg.Topics, kept, language)
 	if err != nil {
 		return "", ai.Usage{}, err
 	}

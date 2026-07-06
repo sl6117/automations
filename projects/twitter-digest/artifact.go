@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/sl6117/automations/pkg/sources"
@@ -16,6 +17,7 @@ type Artifact struct {
 	Timestamp    string          `json:"ts"`
 	Model        string          `json:"model"`
 	Kept         []sources.Tweet `json:"kept"`
+	Language     string          `json:"language"`
 	Digest       string          `json:"digest"`
 	InputTokens  int             `json:"inputTokens"`
 	OutputTokens int             `json:"outputTokens"`
@@ -44,7 +46,7 @@ func saveArtifact(a Artifact) error {
 		return fmt.Errorf("marshal artifact: %w", err)
 	}
 
-	name := now.Format("2006-01-02T15-04-05Z") + "-twitter-digest.json"
+	name := now.Format("2006-01-02T15-04-05Z") + "-twitter-digest-" + strings.ToLower(strings.ReplaceAll(a.Language, " ", "-")) + ".json"
 	if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
 		return fmt.Errorf("write artifact: %w", err)
 	}

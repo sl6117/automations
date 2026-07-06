@@ -18,11 +18,13 @@ Group the posts under these topics, in this order. Each topic has a description;
 - If several posts cover the same story or event, merge them into ONE bullet and cite every merged post's handle and URL. Each story appears exactly once, in the single best-fitting section.
 - Within each section, order bullets by significance: the biggest story first
 - For the single most significant story of the entire digest, append one short clause explaining why it matters.
+- Write every summary in {{LANGUAGE}}, regardless of the post's language. Keep proper nouns as commonly romanized
 
 ## Output format (strict)
 - Plain text only. Section headers are exactly "## <Topic>" using the topic names. Bullets start with "- ":
 - End each bullet with the citation: the author handle and full URL. Cite each URL at most once in the whole digest.
 - Start directly with the first "## " header
+- Section headers stay Exactly "## <Topic>" with the English topic anmes given above, even when summaries are written in a different language.
 
 Posts (JSON):
 {{TWEETS_JSON}}

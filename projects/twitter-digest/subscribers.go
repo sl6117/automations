@@ -15,11 +15,19 @@ import (
 // loaded from gitignored subscibers.json (for now)
 // - delivery address is personal data and never shared in the repo
 type Subscriber struct {
-	Name   string   `json:"name"`
-	Sink   string   `json:"sink"` // "telegram", "email", or "console"
-	ChatID string   `json:"chatId,omitempty"`
-	Email  string   `json:"email,omitempty"`
-	Topics []string `json:"topics"`
+	Name     string   `json:"name"`
+	Sink     string   `json:"sink"` // "telegram", "email", or "console"
+	ChatID   string   `json:"chatId,omitempty"`
+	Email    string   `json:"email,omitempty"`
+	Topics   []string `json:"topics"`
+	Language string   `json:"language,omitempty"`
+}
+
+func (s Subscriber) language() string {
+	if s.Language == "" {
+		return "English"
+	}
+	return s.Language
 }
 
 func subscribersPath() string {

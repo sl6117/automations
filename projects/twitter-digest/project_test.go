@@ -197,3 +197,56 @@ func TestProjectRunRoutesSubscribers(t *testing.T) {
 		t.Errorf("bob (wildcard) got wrong digest: %#v", bob)
 	}
 }
+
+type langClient struct{ prompts []string }
+
+func (m *langClient) Complete(ctx context.Context, req ai.Request) (ai.Response, error) {
+	m.prompts = append(m.prompts, req.Prompt)
+	text := "## AI\n- english story"
+
+	if strings.Contains(req.Prompt, "Korean") {
+		text = "## AI\n- korean story"
+	}
+	return ai.Response{Text: text, Model: "claude-haiku-4-5", Usage: ai.Usage{InputTokens: 10, OutputTokens: 20}}, nil
+}
+
+func TestProjectRunPerLanguageDigests(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("AUTOMATION_ROOT", root)
+	dir := filepath.Join(root, "projects", "twitter-digest")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	subsJSON := `[
+		{"name": "alice", "sink": "console", "topics": ["AI"]},
+		{"name": "hana", "sink": "console", "topics": ["AI"], "language": "Korean"}
+	]`
+	if err := os.WriteFile(filepath.Join(dir, "subscribers.json"), []byte(subsJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fake := &langClient{}
+	got := map[string]*fakeSink{}
+	p := &project{
+		client: fake,
+		source: sources.Mock{},
+		sinkFor: func(sub Subscriber, cfg Config, rt *runner.Runtime) (sinks.Sink, error) {
+			s := &fakeSink{}
+			got[sub.Name] = s
+			return s, nil
+		},
+	}
+	var buf bytes.Buffer
+	runTime := &runner.Runtime{DryRun: false, Log: log.New(&buf, "", 0), ProjectDir: "."}
+	if err := p.Run(context.Background(), runTime); err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+	if len(fake.prompts) != 2 {
+		t.Errorf("LLM called %d times, want 2 (one per language)", len(fake.prompts))
+	}
+	if a := got["alice"]; a == nil || len(a.delivered) != 1 || !strings.Contains(a.delivered[0], "english story") {
+		t.Errorf("alice got wrong digest: %#v", a)
+	}
+	if h := got["hana"]; h == nil || len(h.delivered) != 1 || !strings.Contains(h.delivered[0], "korean story") {
+		t.Errorf("hana got wrong digest: %#v", h)
+	}
+}
