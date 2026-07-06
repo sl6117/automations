@@ -2,7 +2,7 @@
 # Entry point used by the scheduler (launched) to run the digest once.
 # launched provides a minimal environment (no direnv, no Homebrew PATH),
 # so this script loads .env itself and runs the prebuilt Go binary (bin/auto)
-# Rebuild after code chnages: go build -o bin/auto ./cmd/auto
+# Rebuild after code changes: go build -o bin/auto ./cmd/auto
 
 set -euo pipefail
 
@@ -34,7 +34,7 @@ mkdir -p logs
             ok=1
             break
         fi
-        echo "attmept $attempt failed; retrying in 60s..."
+        echo "attempt $attempt failed; retrying in 60s..."
         sleep 60
     done
     [ "$ok" = "1" ]
