@@ -216,3 +216,65 @@ func TestXAPIFetchExpandsQuotes(t *testing.T) {
 		t.Errorf("quoted text = %q, want %q", tweets[0].Text, want)
 	}
 }
+
+func TestXAPIFetchPaginatesUntilCursor(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("pagination_token") == "" {
+			io.WriteString(w, `{
+				"data": [
+					{"id": "500", "text": "newest", "author_id": "42", "public_metrics": {"like_count": 1, "retweet_count": 0}},
+					{"id": "400", "text": "newer", "author_id": "42", "public_metrics": {"like_count": 1, "retweet_count": 0}}
+				],
+				"includes": {"users": [{"id": "42", "name": "Author", "username": "author"}]},
+				"meta": {"next_token": "page2"}
+			}`)
+			return
+		}
+		io.WriteString(w, `{
+			"data": [
+				{"id": "300", "text": "older but unseen", "author_id": "42", "public_metrics": {"like_count": 1, "retweet_count": 0}},
+				{"id": "200", "text": "the cursor itself", "author_id": "42", "public_metrics": {"like_count": 1, "retweet_count": 0}}
+			],
+			"includes": {"users": [{"id": "42", "name": "Author", "username": "author"}]},
+			"meta": {"next_token": "page3-must-never-be-fetched"}
+		}`)
+	}))
+
+	defer server.Close()
+
+	x := XAPI{BearerToken: "test-token", ListID: "12345", BaseURL: server.URL, SinceID: "200"}
+	tweets, err := x.Fetch(context.Background())
+	if err != nil {
+		t.Fatalf("Fetch returned error: %v", err)
+	}
+	if requests != 2 {
+		t.Errorf("made %d requests, want 2 (cursor reached on page 2)", requests)
+	}
+	if len(tweets) != 3 {
+		t.Errorf("got %d tweets, want 3", len(tweets))
+	}
+}
+
+func TestXAPIFetchFirstRunFetchesOnePage(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{
+			"data": [{"id": "100", "text": "hello", "author_id": "42", "public_metrics": {"like_count": 1, "retweet_count": 0}}],
+			"includes": {"users": [{"id": "42", "name": "Author", "username": "author"}]},
+			"meta": {"next_token": "tempting-second-page"}
+		}`)
+	}))
+	defer server.Close()
+	x := XAPI{BearerToken: "test-token", ListID: "12345", BaseURL: server.URL}
+	if _, err := x.Fetch(context.Background()); err != nil {
+		t.Fatalf("Fetch returned error: %v", err)
+	}
+	if requests != 1 {
+		t.Errorf("made %d requests, want 1 (no cursor = single page)", requests)
+	}
+}
