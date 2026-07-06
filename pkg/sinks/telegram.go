@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -15,6 +16,10 @@ const (
 	defaultTelegramBaseURL = "https://api.telegram.org"
 	telegramChunkLimit     = 4000 // under 4096 telegram cap
 )
+
+// citationPattern matches "@handle URL" citations and bare x.com URLs
+// (merged bullets cite a second URL with no handle of its own)
+var citationPattern = regexp.MustCompile(`(?:(@\w+) )?(https://x\.com/[^\s\])",.]+)`)
 
 // Telegram delivers a message via the Bot API sendMessage method
 // BaseURL is overridable so tests can point at httptest
@@ -31,6 +36,7 @@ func (t Telegram) Name() string { return "telegram" }
 type telegramSendMessage struct {
 	ChatID                string `json:"chat_id"`
 	Text                  string `json:"text"`
+	ParseMode             string `json:"parse_mode,omitempty"`
 	DisableWebPagePreview bool   `json:"disable_web_page_preview"`
 }
 
@@ -47,10 +53,13 @@ func (t Telegram) Deliver(ctx context.Context, message string) error {
 
 	url := fmt.Sprintf("%s/bot%s/sendMessage", base, t.BotToken)
 
+	message = formatHTML(message)
+
 	for _, chunk := range splitMessage(message, telegramChunkLimit) {
 		body, err := json.Marshal(telegramSendMessage{
 			ChatID:                t.ChatID,
 			Text:                  chunk,
+			ParseMode:             "HTML",
 			DisableWebPagePreview: true,
 		})
 		if err != nil {
@@ -125,4 +134,30 @@ func (t Telegram) redact(s string) string {
 		return s
 	}
 	return strings.ReplaceAll(s, t.BotToken, "***REDACTED***")
+}
+
+// formatHTML converts cannonical digest text ("## " headers, "@handle URL" ctiations)
+// into Telegram HTML: bold extion headers and tappable links
+// Escaping happens first, so the only tags in the output are ours
+
+func formatHTML(text string) string {
+	esc := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
+
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		line = esc.Replace(line)
+		if strings.HasPrefix(line, "## ") {
+			lines[i] = "<b>" + strings.TrimPrefix(line, "## ") + "</b>"
+			continue
+		}
+		lines[i] = citationPattern.ReplaceAllStringFunc(line, func(match string) string {
+			parts := citationPattern.FindStringSubmatch(match)
+			label := parts[1]
+			if label == "" {
+				label = "link"
+			}
+			return `<a href="` + parts[2] + `">` + label + `</a>`
+		})
+	}
+	return strings.Join(lines, "\n")
 }

@@ -70,3 +70,27 @@ func TestTelegramRedactsToken(t *testing.T) {
 		t.Errorf("token leaked in error: %s", got)
 	}
 }
+
+func TestTelegramDeliverFormatsHTML(t *testing.T) {
+	var gotBody telegramSendMessage
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &gotBody)
+		io.WriteString(w, `{"ok": true}`)
+	}))
+	defer server.Close()
+
+	message := "## AI\n- Models & tools <3. @alice https://x.com/alice/status/1 and https://x.com/bob/status/2"
+	telegram := Telegram{BotToken: "test-token", ChatID: "999", BaseURL: server.URL}
+	if err := telegram.Deliver(context.Background(), message); err != nil {
+		t.Fatalf("Deliver failed: %v", err)
+	}
+	if gotBody.ParseMode != "HTML" {
+		t.Errorf("parse_mode = %q, want HTML", gotBody.ParseMode)
+	}
+	want := "<b>AI</b>\n" +
+		`- Models &amp; tools &lt;3. <a href="https://x.com/alice/status/1">@alice</a> and <a href="https://x.com/bob/status/2">link</a>`
+	if gotBody.Text != want {
+		t.Errorf("text =\n%q\nwant\n%q", gotBody.Text, want)
+	}
+}
