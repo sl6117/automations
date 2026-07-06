@@ -37,7 +37,7 @@ mkdir -p logs
         echo "attmept $attempt failed; retrying in 60s..."
         sleep 60
     done
-    [ "ok" = "1" ]
+    [ "$ok" = "1" ]
     echo "===== end run ====="
 } >> logs/launchd-digest.log 2>&1
 
