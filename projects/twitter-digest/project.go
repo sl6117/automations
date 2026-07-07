@@ -11,6 +11,7 @@ import (
 	"github.com/sl6117/automations/internal/config"
 	"github.com/sl6117/automations/internal/obs"
 	"github.com/sl6117/automations/internal/runner"
+	"github.com/sl6117/automations/internal/storage"
 	"github.com/sl6117/automations/pkg/sinks"
 	"github.com/sl6117/automations/pkg/sources"
 )
@@ -29,6 +30,7 @@ type project struct {
 	source  sources.Source
 	sinks   []sinks.Sink
 	sinkFor func(Subscriber, Config, *runner.Runtime) (sinks.Sink, error)
+	store   storage.Store
 }
 
 func (p *project) Name() string { return "twitter-digest" }
@@ -38,11 +40,18 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 	if err := config.Load(filepath.Join(runTime.ProjectDir, "config.json"), &cfg); err != nil {
 		return err
 	}
+
+	store := p.store
+	if store == nil {
+		store = storage.NewFS()
+	}
+
 	// gather
-	state, err := loadState()
+	state, err := loadState(ctx, store)
 	if err != nil {
 		return err
 	}
+
 	source := p.source
 	if source == nil {
 		selected, err := selectSource(cfg, state.SinceID)
@@ -63,7 +72,7 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 		runTime.Log.Println("[twitter-digest] no tweets to digest - skipping send")
 
 		if !runTime.DryRun {
-			if err := advanceCursor(runTime, state, tweets); err != nil {
+			if err := advanceCursor(ctx, store, runTime, state, tweets); err != nil {
 				return err
 			}
 		}
@@ -157,7 +166,7 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 				return fmt.Errorf("delivery via %s: %w", sink.Name(), err)
 			}
 		}
-		return advanceCursor(runTime, state, tweets)
+		return advanceCursor(ctx, store, runTime, state, tweets)
 	}
 
 	sinkFor := p.sinkFor
@@ -198,7 +207,7 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 	if delivered == 0 && len(deliveryErrs) > 0 {
 		return errors.Join(deliveryErrs...)
 	}
-	return advanceCursor(runTime, state, tweets)
+	return advanceCursor(ctx, store, runTime, state, tweets)
 }
 
 func (p *project) digest(ctx context.Context, runTime *runner.Runtime, cfg Config, kept []sources.Tweet, language string) (string, ai.Usage, error) {
@@ -358,13 +367,13 @@ func subscriberSink(sub Subscriber, cfg Config, runTime *runner.Runtime) (sinks.
 
 // advanceCursor persists the newest fetched ID s.t the next run only sees newer tweets.
 // Called only after the run's real work succeeded - a failed runretries the same tweets.
-func advanceCursor(runTime *runner.Runtime, state State, tweets []sources.Tweet) error {
+func advanceCursor(ctx context.Context, store storage.Store, runTime *runner.Runtime, state State, tweets []sources.Tweet) error {
 	id := newestID(tweets)
 	if id == "" || id == state.SinceID {
 		return nil
 	}
 	state.SinceID = id
-	if err := saveState(state); err != nil {
+	if err := saveState(ctx, store, state); err != nil {
 		return fmt.Errorf("save state: %w", err)
 	}
 	runTime.Log.Printf("[twitter-digest] advanced cursor to %s", id)

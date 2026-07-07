@@ -1,34 +1,29 @@
 package twitterdigest
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strconv"
 
+	"github.com/sl6117/automations/internal/storage"
 	"github.com/sl6117/automations/pkg/sources"
 )
 
-// State holds run cursors persisted between runs. Anchored on AUTOMATION_ROOT
-// (like obs.LogRun) so tests with a temp root never touch the real file.
+// State holds run cursors persisted between runs (stored under stateKey)
+// via storage.Store, so backend and tests decide where it actually lives
 type State struct {
 	SinceID string `json:"sinceId"`
 }
 
-func statePath() string {
-	root := os.Getenv("AUTOMATION_ROOT")
-	if root == "" {
-		root = "."
-	}
-	return filepath.Join(root, "projects", "twitter-digest", "state.json")
-}
+const stateKey = "projects/twitter-digest/state.json"
 
 // loadState returns a zero State on first run (no file yet)
-func loadState() (State, error) {
-	data, err := os.ReadFile(statePath())
-	if errors.Is(err, os.ErrNotExist) {
+func loadState(ctx context.Context, store storage.Store) (State, error) {
+
+	data, err := store.Get(ctx, stateKey)
+	if errors.Is(err, storage.ErrNotExist) {
 		return State{}, nil
 	}
 	if err != nil {
@@ -41,15 +36,12 @@ func loadState() (State, error) {
 	return state, nil
 }
 
-func saveState(state State) error {
+func saveState(ctx context.Context, store storage.Store, state State) error {
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal state: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(statePath()), 0o755); err != nil {
-		return fmt.Errorf("create dir: %w", err)
-	}
-	if err := os.WriteFile(statePath(), data, 0o644); err != nil {
+	if err := store.Put(ctx, stateKey, data); err != nil {
 		return fmt.Errorf("write state: %w", err)
 	}
 	return nil
