@@ -1,13 +1,13 @@
 package twitterdigest
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/sl6117/automations/internal/storage"
 	"github.com/sl6117/automations/pkg/sources"
 )
 
@@ -25,29 +25,20 @@ type Artifact struct {
 	EvalCoverage string          `json:"evalCoverage"`
 }
 
-// saveArtifact writes one JSON file per run under logs/runs/
-// (AUTOMATION_ROOT-anchored, same pattern as the cost log and state file).
-func saveArtifact(a Artifact) error {
+// saveArtifact writes one artifact per run under logs/runs/ via the
+// storage.Storage, perserving the exact inpiuts and output for re-inspection.
+func saveArtifact(ctx context.Context, store storage.Store, a Artifact) error {
 	now := time.Now().UTC()
 	a.Timestamp = now.Format(time.RFC3339)
-
-	root := os.Getenv("AUTOMATION_ROOT")
-	if root == "" {
-		root = "."
-	}
-	dir := filepath.Join(root, "logs", "runs")
-
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create runs dir: %w", err)
-	}
 
 	data, err := json.MarshalIndent(a, "", " ")
 	if err != nil {
 		return fmt.Errorf("marshal artifact: %w", err)
 	}
 
-	name := now.Format("2006-01-02T15-04-05Z") + "-twitter-digest-" + strings.ToLower(strings.ReplaceAll(a.Language, " ", "-")) + ".json"
-	if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
+	key := "logs/runs/" + now.Format("2006-01-02T15-04-05Z") + "-twitter-digest-" + strings.ToLower(strings.ReplaceAll(a.Language, " ", "-")) + ".json"
+
+	if err := store.Put(ctx, key, data); err != nil {
 		return fmt.Errorf("write artifact: %w", err)
 	}
 	return nil

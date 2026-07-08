@@ -1,10 +1,11 @@
 package twitterdigest
 
 import (
-	"os"
-	"path/filepath"
+	"context"
 	"strings"
 	"testing"
+
+	"github.com/sl6117/automations/internal/storage"
 )
 
 func TestSplitSections(t *testing.T) {
@@ -53,26 +54,25 @@ func TestAssembleFor(t *testing.T) {
 }
 
 func TestLoadSubscribers(t *testing.T) {
+
+	ctx := context.Background()
 	t.Run("missing file is legacy mode, not an error", func(t *testing.T) {
-		t.Setenv("AUTOMATION_ROOT", t.TempDir())
-		subs, err := loadSubscribers()
+
+		subs, err := loadSubscribers(ctx, &storage.FS{Root: t.TempDir()})
 		if err != nil || subs != nil {
 			t.Errorf("got (%v, %v), want (nil, nil)", subs, err)
 		}
 	})
 
 	t.Run("valid file round-trips", func(t *testing.T) {
-		root := t.TempDir()
-		t.Setenv("AUTOMATION_ROOT", root)
-		dir := filepath.Join(root, "projects", "twitter-digest")
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatal(err)
-		}
+		store := &storage.FS{Root: t.TempDir()}
+
 		content := `[{"name": "me", "sink": "telegram", "chatId": "123", "topics": ["*"]}]`
-		if err := os.WriteFile(filepath.Join(dir, "subscribers.json"), []byte(content), 0o644); err != nil {
+
+		if err := store.Put(ctx, subscribersKey, []byte(content)); err != nil {
 			t.Fatal(err)
 		}
-		subs, err := loadSubscribers()
+		subs, err := loadSubscribers(ctx, store)
 		if err != nil || len(subs) != 1 || subs[0].ChatID != "123" {
 			t.Errorf("got (%+v, %v), want one subscriber with chatId 123", subs, err)
 		}

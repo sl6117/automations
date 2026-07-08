@@ -81,7 +81,7 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 
 	runTime.Log.Printf("[twitter-digest] %d fetched -> %d kept", len(tweets), len(kept))
 
-	subs, err := loadSubscribers()
+	subs, err := loadSubscribers(ctx, store)
 	if err != nil {
 		return err
 	}
@@ -119,7 +119,7 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 			runTime.Log.Printf("[twitter-digest] eval failure (%s): %s", lang, f)
 		}
 		if !runTime.DryRun {
-			if err := saveArtifact(Artifact{
+			if err := saveArtifact(ctx, store, Artifact{
 				Model:        cfg.Model,
 				Language:     lang,
 				Kept:         kept,

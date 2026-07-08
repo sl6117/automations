@@ -1,18 +1,21 @@
 package twitterdigest
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/sl6117/automations/internal/storage"
 )
+
+const subscribersKey = "projects/twitter-digest/subscribers.json"
 
 // Subscriber is one digest recipient: which sink to use, where to send, which topics they want
 // ("*" -> all topics including other)
-// loaded from gitignored subscibers.json (for now)
+// loaded via storage.Store (gitignored file on FS be)
 // - delivery address is personal data and never shared in the repo
 type Subscriber struct {
 	Name     string   `json:"name"`
@@ -30,19 +33,11 @@ func (s Subscriber) language() string {
 	return s.Language
 }
 
-func subscribersPath() string {
-	root := os.Getenv("AUTOMATION_ROOT")
-	if root == "" {
-		root = "."
-	}
-	return filepath.Join(root, "projects", "twitter-digest", "subscribers.json")
-}
-
 // loadSubscribers returns nil (no error) when the file doesn't exist
 // callers fall back to the legacy deliverTo config
-func loadSubscribers() ([]Subscriber, error) {
-	data, err := os.ReadFile(subscribersPath())
-	if errors.Is(err, os.ErrNotExist) {
+func loadSubscribers(ctx context.Context, store storage.Store) ([]Subscriber, error) {
+	data, err := store.Get(ctx, subscribersKey)
+	if errors.Is(err, storage.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
