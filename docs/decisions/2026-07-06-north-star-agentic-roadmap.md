@@ -37,8 +37,10 @@ not as a separate track.
 ## The build sequence
 
 1. ~~Storage abstraction: `storage.Store` interface + filesystem impl~~ (done 2026-07-06)
-2. Migrate all four storage call sites (state, artifacts, subscribers, cost log)
-   through the Store seam — in progress
+2. ~~Migrate all four storage call sites (state, artifacts, subscribers, cost log)
+   through the Store seam~~ (done 2026-07-08; lesson learned: tests must inject
+   `&storage.FS{Root: t.TempDir()}`, never `NewFS()` — ambient AUTOMATION_ROOT
+   points at the real repo and a test once polluted the real cost log)
 3. CI: GitHub Actions running `go vet` + `go test ./...` on push
 4. Delivery queue (filesystem Store first) — fixes the silent-subscriber-loss bug
 5. DynamoDB impl of Store + queue (single table, pk = storage key, sk = timestamp

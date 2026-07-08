@@ -11,6 +11,7 @@ import (
 
 	"github.com/sl6117/automations/internal/ai"
 	"github.com/sl6117/automations/internal/runner"
+	"github.com/sl6117/automations/internal/storage"
 	"github.com/sl6117/automations/pkg/sinks"
 	"github.com/sl6117/automations/pkg/sources"
 )
@@ -102,7 +103,7 @@ func TestProjectRunLLM(t *testing.T) {
 		t.Errorf("model = %q, want config model", fake.gotReq.Model)
 	}
 
-	state, err := loadState()
+	state, err := loadState(context.Background(), storage.NewFS())
 	if err != nil {
 		t.Fatalf("load state: %v", err)
 	}
@@ -133,7 +134,7 @@ func TestProjectRunSkipsWhenNothingKept(t *testing.T) {
 		t.Errorf("delivered %d messages, want 0", len(sink.delivered))
 	}
 
-	state, err := loadState()
+	state, err := loadState(context.Background(), storage.NewFS())
 	if err != nil {
 		t.Fatalf("load state: %v", err)
 	}
