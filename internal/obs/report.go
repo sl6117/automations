@@ -3,12 +3,15 @@ package obs
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/sl6117/automations/internal/storage"
 )
 
 // costLogPath is the same file LogRun writes to
@@ -17,18 +20,18 @@ func costLogPath() string {
 }
 
 // LoadRuns reads every logged run. A missing log isn't an error (returns nil)
-func LoadRuns() ([]Run, error) {
-	f, err := os.Open(costLogPath())
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("open cost log: %w", err)
+func LoadRuns(ctx context.Context, store storage.Store) ([]Run, error) {
+	data, err := store.Get(ctx, costLogKey)
+	if errors.Is(err, storage.ErrNotExist) {
+		return nil, nil
 	}
-	defer f.Close()
+	if err != nil {
+		return nil, fmt.Errorf("read cost log: %w", err)
+	}
 
 	var runs []Run
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+
 	for scanner.Scan() {
 		line := bytes.TrimSpace(scanner.Bytes())
 		if len(line) == 0 {
@@ -50,8 +53,8 @@ type monthAgg struct {
 }
 
 // Report aggregates the cost log and writes a human-readable summary to w
-func Report(w io.Writer) error {
-	runs, err := LoadRuns()
+func Report(ctx context.Context, store storage.Store, w io.Writer) error {
+	runs, err := LoadRuns(ctx, store)
 	if err != nil {
 		return err
 	}

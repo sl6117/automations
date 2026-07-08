@@ -1,11 +1,12 @@
 package obs
 
 import (
+	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sl6117/automations/internal/storage"
 )
 
 func TestEstimateCost(t *testing.T) {
@@ -18,10 +19,10 @@ func TestEstimateCost(t *testing.T) {
 }
 
 func TestLogRunAppends(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("AUTOMATION_ROOT", root)
+	ctx := context.Background()
+	store := &storage.FS{Root: t.TempDir()}
 
-	if _, err := LogRun(Run{
+	if _, err := LogRun(ctx, store, Run{
 		Project:     "twitter-digest",
 		Model:       "anthropic/claude-haiku-4.5",
 		InputTokens: 1_000_000,
@@ -30,8 +31,7 @@ func TestLogRunAppends(t *testing.T) {
 		t.Fatalf("LogRun failed: %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(root, "logs", "cost-log.jsonl"))
-
+	data, err := store.Get(ctx, costLogKey)
 	if err != nil {
 		t.Fatalf("read log: %v", err)
 	}

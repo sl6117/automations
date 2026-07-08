@@ -2,14 +2,19 @@ package obs
 
 import (
 	"bytes"
+	"context"
 	"strings"
 	"testing"
+
+	"github.com/sl6117/automations/internal/storage"
 )
 
 func TestReport(t *testing.T) {
-	t.Setenv("AUTOMATION_ROOT", t.TempDir())
+	// t.Setenv("AUTOMATION_ROOT", t.TempDir())
+	ctx := context.Background()
+	store := &storage.FS{Root: t.TempDir()}
 
-	if _, err := LogRun(Run{
+	if _, err := LogRun(ctx, store, Run{
 		Project:      "twitter-digest",
 		Model:        "claude-haiku-4-5",
 		InputTokens:  1_000_000,
@@ -20,7 +25,7 @@ func TestReport(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := Report(&buf); err != nil {
+	if err := Report(ctx, store, &buf); err != nil {
 		t.Fatalf("Report: %v", err)
 	}
 	out := buf.String()

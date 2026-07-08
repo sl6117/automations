@@ -16,6 +16,7 @@ import (
 	"github.com/sl6117/automations/internal/runner"
 
 	// Project registrations go here as blank imports so their init() runs.
+	"github.com/sl6117/automations/internal/storage"
 	_ "github.com/sl6117/automations/projects/hello"
 	_ "github.com/sl6117/automations/projects/twitter-digest"
 )
@@ -62,7 +63,7 @@ func cmdList() {
 }
 
 func cmdCost() {
-	if err := obs.Report(os.Stdout); err != nil {
+	if err := obs.Report(context.Background(), storage.NewFS(), os.Stdout); err != nil {
 		log.Fatalf("cost: %v", err)
 	}
 }

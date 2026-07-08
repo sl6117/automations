@@ -134,7 +134,7 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 		}
 	}
 
-	if _, err := obs.LogRun(obs.Run{
+	if _, err := obs.LogRun(context.Background(), storage.NewFS(), obs.Run{
 		Project:      p.Name(),
 		Model:        cfg.Model,
 		DryRun:       runTime.DryRun,
