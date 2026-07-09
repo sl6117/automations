@@ -340,3 +340,40 @@ func TestFailedSubscriberRetriesNextRunWithoutLoss(t *testing.T) {
 	}
 
 }
+func TestQuietRunStillDrainsPendingJobs(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("AUTOMATION_ROOT", root)
+	dir := filepath.Join(root, "projects", "twitter-digest")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	subsJSON := `[{"name": "sang", "sink": "console", "topics": ["*"]}]`
+	if err := os.WriteFile(filepath.Join(dir, "subscribers.json"), []byte(subsJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	jobs := queue.NewMemory()
+	// yesterday's failed delivery, still pending
+	if err := jobs.Enqueue(context.Background(), "twitter-digest", queue.Job{
+		ID: "5#sang", Payload: []byte("yesterday's digest"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	sang := &fakeSink{}
+	p := &project{
+		client: &fakeClient{},
+		source: quietSource{}, // fetches one spam tweet, keeps nothing
+		store:  &storage.FS{Root: root},
+		jobs:   jobs,
+		sinkFor: func(sub Subscriber, cfg Config, rt *runner.Runtime) (sinks.Sink, error) {
+			return sang, nil
+		},
+	}
+	var buf bytes.Buffer
+	runTime := &runner.Runtime{DryRun: false, Log: log.New(&buf, "", 0), ProjectDir: "."}
+	if err := p.Run(context.Background(), runTime); err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+	if len(sang.delivered) != 1 || sang.delivered[0] != "yesterday's digest" {
+		t.Errorf("pending job not drained on quiet run: %#v", sang.delivered)
+	}
+}

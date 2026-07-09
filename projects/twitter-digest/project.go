@@ -82,12 +82,28 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 	if len(kept) == 0 {
 		runTime.Log.Println("[twitter-digest] no tweets to digest - skipping send")
 
-		if !runTime.DryRun {
-			if err := advanceCursor(ctx, store, runTime, state, tweets); err != nil {
-				return err
-			}
+		if runTime.DryRun {
+			return nil
 		}
-		return nil
+
+		if err := advanceCursor(ctx, store, runTime, state, tweets); err != nil {
+			return err
+		}
+
+		// a quiet fetch still drains: leftover jobs from failed deliveries
+		// must not wait for a day with new content
+		subs, err := loadSubscribers(ctx, store)
+		if err != nil {
+			return err
+		}
+		if len(subs) == 0 {
+			return nil
+		}
+		jobs, err := p.queueFromSeam(ctx)
+		if err != nil {
+			return err
+		}
+		return p.drain(ctx, runTime, cfg, subs, jobs)
 	}
 
 	runTime.Log.Printf("[twitter-digest] %d fetched -> %d kept", len(tweets), len(kept))
@@ -180,13 +196,9 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 		return advanceCursor(ctx, store, runTime, state, tweets)
 	}
 
-	jobs := p.jobs
-	if jobs == nil {
-		selected, err := queue.FromEnv(ctx)
-		if err != nil {
-			return err
-		}
-		jobs = selected
+	jobs, err := p.queueFromSeam(ctx)
+	if err != nil {
+		return err
 	}
 
 	sections := make(map[string][]Section, len(digests))
@@ -212,6 +224,13 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 	}
 	return p.drain(ctx, runTime, cfg, subs, jobs)
 
+}
+
+func (p *project) queueFromSeam(ctx context.Context) (queue.Queue, error) {
+	if p.jobs != nil {
+		return p.jobs, nil
+	}
+	return queue.FromEnv(ctx)
 }
 
 // drain claims and delivers every pending job, including leftovers from previous runs
