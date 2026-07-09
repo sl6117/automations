@@ -43,8 +43,15 @@ not as a separate track.
    points at the real repo and a test once polluted the real cost log)
 3. CI: GitHub Actions running `go vet` + `go test ./...` on push
 4. Delivery queue (filesystem Store first) — fixes the silent-subscriber-loss bug
-5. DynamoDB impl of Store + queue (single table, pk = storage key, sk = timestamp
-   for appends, project attribute for future GSIs; on-demand mode)
+5. ~~DynamoDB impl of Store~~ (done 2026-07-08: single table `automations` in us-east-2,
+   pk = storage key, sk = "_" for blobs / timestamp for appends, project attribute,
+   on-demand mode; STORAGE_BACKEND=dynamo selects it; cmd/seed migrates/repairs from
+   the filesystem copy). Queue on DynamoDB still pending — see step 4.
+   Lesson learned #2: with STORAGE_BACKEND=dynamo in the shell, tests that fall back
+   to env-selected storage hit the REAL table and REAL delivery sinks (it happened —
+   mock cursor overwrote production state, test digests were delivered to real
+   subscribers; repaired by re-running cmd/seed). Every project test must inject
+   `store` explicitly, and "no messages arrived anywhere" is part of a passing run.
 6. Tier-2 LLM judge over run artifacts (evaluator agent)
 7. Generator -> evaluator revise loop using that judge (loop engineering)
 8. Weekly deep-dive project (orchestration + MCP + fan-out)
