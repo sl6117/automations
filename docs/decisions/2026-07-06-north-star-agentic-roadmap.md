@@ -42,7 +42,20 @@ not as a separate track.
    `&storage.FS{Root: t.TempDir()}`, never `NewFS()` — ambient AUTOMATION_ROOT
    points at the real repo and a test once polluted the real cost log)
 3. CI: GitHub Actions running `go vet` + `go test ./...` on push
-4. Delivery queue (filesystem Store first) — fixes the silent-subscriber-loss bug
+4. ~~Delivery queue — fixes the silent-subscriber-loss bug~~ (done 2026-07-09, built
+   directly on DynamoDB since it was already live, skipping the "filesystem first" plan:
+   `internal/queue` — Queue contract (Enqueue/Pending/Claim/Complete/Fail), Memory +
+   Dynamo backends, leases via conditional writes, per-subscriber jobs keyed
+   "<newestTweetID>#<subscriber>" for idempotent enqueue, cursor advances after enqueue
+   instead of after delivery, every run drains leftovers, dead-letter alert to the
+   operator's Telegram after 5 attempts. Proven same-day by a real transient Telegram
+   failure: email delivered, the telegram job queued with attempt 1 recorded, then
+   retried and delivered on the next run — the exact failure that lost Jul 4-5 digests.
+   Lesson learned #3: DynamoDB rejects empty AttributeValues — Memory accepted a nil
+   payload, the real API refused it; the integration tests caught what unit tests
+   structurally could not.
+   Lesson learned #4: draining must not be conditional on producing — the kept==0 early
+   return originally skipped the queue entirely, stranding retry jobs on quiet days.)
 5. ~~DynamoDB impl of Store~~ (done 2026-07-08: single table `automations` in us-east-2,
    pk = storage key, sk = "_" for blobs / timestamp for appends, project attribute,
    on-demand mode; STORAGE_BACKEND=dynamo selects it; cmd/seed migrates/repairs from
