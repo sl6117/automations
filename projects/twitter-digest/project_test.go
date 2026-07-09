@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sl6117/automations/internal/ai"
 	"github.com/sl6117/automations/internal/queue"
@@ -376,4 +377,60 @@ func TestQuietRunStillDrainsPendingJobs(t *testing.T) {
 	if len(sang.delivered) != 1 || sang.delivered[0] != "yesterday's digest" {
 		t.Errorf("pending job not drained on quiet run: %#v", sang.delivered)
 	}
+}
+
+func TestDeadLetterAlertsOperator(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("AUTOMATION_ROOT", root)
+	dir := filepath.Join(root, "projects", "twitter-digest")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	subsJSON := `[{"name": "sang", "sink": "console", "topics": ["*"]}]`
+	if err := os.WriteFile(filepath.Join(dir, "subscribers.json"), []byte(subsJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	jobs := queue.NewMemory()
+
+	if err := jobs.Enqueue(ctx, "twitter-digest", queue.Job{ID: "5#sang", Payload: []byte("doomed digest")}); err != nil {
+		t.Fatal(err)
+	}
+
+	// burn attempts 1-4 through the queue API so the run performs the fatal fifth
+	for i := 0; i < 4; i++ {
+		if ok, _ := jobs.Claim(ctx, "twitter-digest", "5#sang", time.Minute); !ok {
+			t.Fatalf("setup claim %d failed", i+1)
+		}
+		if err := jobs.Fail(ctx, "twitter-digest", "5#sang", errors.New("sink down"), false); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	alert := &fakeSink{}
+
+	p := &project{
+		client: &fakeClient{},
+		source: quietSource{},
+		store:  &storage.FS{Root: root},
+		jobs:   jobs,
+		alert:  alert,
+		sinkFor: func(sub Subscriber, cfg Config, rt *runner.Runtime) (sinks.Sink, error) {
+			return nil, errors.New("sink still down")
+		},
+	}
+
+	var buf bytes.Buffer
+	runTime := &runner.Runtime{DryRun: false, Log: log.New(&buf, "", 0), ProjectDir: "."}
+	if err := p.Run(context.Background(), runTime); err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+	if len(alert.delivered) != 1 || !strings.Contains(alert.delivered[0], "gave up after 5 attempts") {
+		t.Errorf("operator alert = %#v, want one dead-letter notice", alert.delivered)
+	}
+	pending, _ := jobs.Pending(ctx, "twitter-digest")
+	if len(pending) != 0 {
+		t.Errorf("dead-lettered job still pending: %#v", pending)
+	}
+
 }

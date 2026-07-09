@@ -38,6 +38,7 @@ type project struct {
 	sinkFor func(Subscriber, Config, *runner.Runtime) (sinks.Sink, error)
 	store   storage.Store
 	jobs    queue.Queue
+	alert   sinks.Sink
 }
 
 func (p *project) Name() string { return "twitter-digest" }
@@ -233,6 +234,20 @@ func (p *project) queueFromSeam(ctx context.Context) (queue.Queue, error) {
 	return queue.FromEnv(ctx)
 }
 
+// alertSink returns the operator-notification channel, best effort:
+// nil means alerts are disabled and dead-letters only reach the log
+func (p *project) alertSink() sinks.Sink {
+	if p.alert != nil {
+		return p.alert
+	}
+	token := os.Getenv("TELEGRAM_BOT_TOKEN")
+	chatID := os.Getenv("TELEGRAM_CHAT_ID")
+	if token == "" || chatID == "" {
+		return nil
+	}
+	return sinks.Telegram{BotToken: token, ChatID: chatID}
+}
+
 // drain claims and delivers every pending job, including leftovers from previous runs
 // that's how a subscriber who failed yesterday gets yesterday's digest tody
 // Failures settle the job (attempt counted, lease released)
@@ -246,6 +261,15 @@ func (p *project) drain(ctx context.Context, runTime *runner.Runtime, cfg Config
 	byName := make(map[string]Subscriber, len(subs))
 	for _, sub := range subs {
 		byName[sub.Name] = sub
+	}
+	alert := p.alertSink()
+	notify := func(msg string) {
+		if alert == nil {
+			return
+		}
+		if err := alert.Deliver(ctx, msg); err != nil {
+			runTime.Log.Printf("[twitter-digest] alert delivery failed: %v", err)
+		}
 	}
 
 	pending, err := jobs.Pending(ctx, queueName)
@@ -270,6 +294,7 @@ func (p *project) drain(ctx context.Context, runTime *runner.Runtime, cfg Config
 				return err
 			}
 			runTime.Log.Printf("[twitter-digest] job %s DEAD-LETTERED: unknown subscriber", job.ID)
+			notify(fmt.Sprintf("twitter-digest: job %s dead-lettered: unknown subscriber", job.ID))
 			continue
 		}
 		sink, err := sinkFor(sub, cfg, runTime)
@@ -283,6 +308,7 @@ func (p *project) drain(ctx context.Context, runTime *runner.Runtime, cfg Config
 			}
 			if final {
 				runTime.Log.Printf("[twitter-digest] job %s DEAD-LETTERED after %d attempts: %v", job.ID, job.Attempts+1, err)
+				notify(fmt.Sprintf("twitter-digest: delivery to %s gave up after %d attempts: %v", sub.Name, job.Attempts+1, err))
 			} else {
 				runTime.Log.Printf("[twitter-digest] delivery FAILED (attempt %d/%d), queued for retry: %s: %v", job.Attempts+1, deliveryMaxAttempts, job.ID, err)
 			}
