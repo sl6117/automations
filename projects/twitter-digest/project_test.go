@@ -3,6 +3,7 @@ package twitterdigest
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/sl6117/automations/internal/ai"
+	"github.com/sl6117/automations/internal/queue"
 	"github.com/sl6117/automations/internal/runner"
 	"github.com/sl6117/automations/internal/storage"
 	"github.com/sl6117/automations/pkg/sinks"
@@ -157,8 +159,8 @@ func TestProjectRunRoutesSubscribers(t *testing.T) {
 		t.Fatal(err)
 	}
 	subsJSON := `[
-		{"name": "alice", "sink": "console", "topics": ["AI"]},
-		{"name": "bob", "sink": "console", "topics": ["*"]}
+		{"name": "sang", "sink": "console", "topics": ["AI"]},
+		{"name": "thomas", "sink": "console", "topics": ["*"]}
 	]`
 
 	if err := os.WriteFile(filepath.Join(dir, "subscribers.json"), []byte(subsJSON), 0o644); err != nil {
@@ -177,6 +179,7 @@ func TestProjectRunRoutesSubscribers(t *testing.T) {
 		client: fake,
 		source: sources.Mock{},
 		store:  &storage.FS{Root: root},
+		jobs:   queue.NewMemory(),
 		sinkFor: func(sub Subscriber, cfg Config, rt *runner.Runtime) (sinks.Sink, error) {
 			s := &fakeSink{}
 			got[sub.Name] = s
@@ -191,17 +194,17 @@ func TestProjectRunRoutesSubscribers(t *testing.T) {
 		t.Fatalf("run failed: %v", err)
 	}
 
-	alice := got["alice"]
-	if alice == nil || len(alice.delivered) != 1 ||
-		!strings.Contains(alice.delivered[0], "ai story") ||
-		strings.Contains(alice.delivered[0], "misc story") {
-		t.Errorf("alice (AI only) got wrong digest: %#v", alice)
+	sang := got["sang"]
+	if sang == nil || len(sang.delivered) != 1 ||
+		!strings.Contains(sang.delivered[0], "ai story") ||
+		strings.Contains(sang.delivered[0], "misc story") {
+		t.Errorf("sang (AI only) got wrong digest: %#v", sang)
 	}
-	bob := got["bob"]
-	if bob == nil || len(bob.delivered) != 1 ||
-		!strings.Contains(bob.delivered[0], "ai story") ||
-		!strings.Contains(bob.delivered[0], "misc story") {
-		t.Errorf("bob (wildcard) got wrong digest: %#v", bob)
+	thomas := got["thomas"]
+	if thomas == nil || len(thomas.delivered) != 1 ||
+		!strings.Contains(thomas.delivered[0], "ai story") ||
+		!strings.Contains(thomas.delivered[0], "misc story") {
+		t.Errorf("thomas (wildcard) got wrong digest: %#v", thomas)
 	}
 }
 
@@ -225,7 +228,7 @@ func TestProjectRunPerLanguageDigests(t *testing.T) {
 		t.Fatal(err)
 	}
 	subsJSON := `[
-		{"name": "alice", "sink": "console", "topics": ["AI"]},
+		{"name": "sang", "sink": "console", "topics": ["AI"]},
 		{"name": "hana", "sink": "console", "topics": ["AI"], "language": "Korean"}
 	]`
 	if err := os.WriteFile(filepath.Join(dir, "subscribers.json"), []byte(subsJSON), 0o644); err != nil {
@@ -237,6 +240,7 @@ func TestProjectRunPerLanguageDigests(t *testing.T) {
 		client: fake,
 		source: sources.Mock{},
 		store:  &storage.FS{Root: root},
+		jobs:   queue.NewMemory(),
 		sinkFor: func(sub Subscriber, cfg Config, rt *runner.Runtime) (sinks.Sink, error) {
 			s := &fakeSink{}
 			got[sub.Name] = s
@@ -251,10 +255,88 @@ func TestProjectRunPerLanguageDigests(t *testing.T) {
 	if len(fake.prompts) != 2 {
 		t.Errorf("LLM called %d times, want 2 (one per language)", len(fake.prompts))
 	}
-	if a := got["alice"]; a == nil || len(a.delivered) != 1 || !strings.Contains(a.delivered[0], "english story") {
-		t.Errorf("alice got wrong digest: %#v", a)
+	if a := got["sang"]; a == nil || len(a.delivered) != 1 || !strings.Contains(a.delivered[0], "english story") {
+		t.Errorf("sang got wrong digest: %#v", a)
 	}
 	if h := got["hana"]; h == nil || len(h.delivered) != 1 || !strings.Contains(h.delivered[0], "korean story") {
 		t.Errorf("hana got wrong digest: %#v", h)
 	}
+}
+
+func TestFailedSubscriberRetriesNextRunWithoutLoss(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("AUTOMATION_ROOT", root)
+
+	dir := filepath.Join(root, "projects", "twitter-digest")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	subsJSON := `[
+		{"name": "sang", "sink": "console", "topics": ["*"]},
+		{"name": "thomas", "sink": "email", "topics": ["*"]}
+	]`
+	if err := os.WriteFile(filepath.Join(dir, "subscribers.json"), []byte(subsJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	fake := &fakeClient{resp: ai.Response{
+		Text:  "## AI\n- big story",
+		Model: "claude-haiku-4-5",
+		Usage: ai.Usage{InputTokens: 10, OutputTokens: 20},
+	}}
+
+	store := &storage.FS{Root: root}
+	jobs := queue.NewMemory()
+
+	sang := &fakeSink{}
+	thomas := &fakeSink{}
+	thomasDown := true
+
+	p := &project{
+		client: fake,
+		source: sources.Mock{},
+		store:  store,
+		jobs:   jobs,
+		sinkFor: func(sub Subscriber, cfg Config, rt *runner.Runtime) (sinks.Sink, error) {
+			if sub.Name == "thomas" {
+				if thomasDown {
+					return nil, errors.New("email sink misconfigured")
+				}
+				return thomas, nil
+			}
+			return sang, nil
+		},
+	}
+	var buf bytes.Buffer
+	runTime := &runner.Runtime{DryRun: false, Log: log.New(&buf, "", 0), ProjectDir: "."}
+
+	// run 1: thomas's sink is down
+	if err := p.Run(context.Background(), runTime); err != nil {
+		t.Fatalf("run 1 failed: %v", err)
+	}
+	if len(sang.delivered) != 1 {
+		t.Errorf("run 1: sang deliveries = %d, want 1", len(sang.delivered))
+	}
+	if len(thomas.delivered) != 0 {
+		t.Errorf("run 1: thomas deliveries = %d, want 0", len(thomas.delivered))
+	}
+	state, err := loadState(context.Background(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.SinceID != "6" {
+		t.Errorf("cursor = %q, want 6: it must advance even when a subscriber fails", state.SinceID)
+	}
+	// run 2: thomas recovered - his queued job delivers, sang is not repeated
+	thomasDown = false
+	if err := p.Run(context.Background(), runTime); err != nil {
+		t.Fatalf("run 2 failed: %v", err)
+	}
+	if len(thomas.delivered) != 1 {
+		t.Errorf("run 2: thomas deliveries = %d, want 1 (queued job must be retried)", len(thomas.delivered))
+	}
+	if len(sang.delivered) != 1 {
+		t.Errorf("run 2: sang deliveries = %d, want 1 (dedupe must prevent a double-send)", len(sang.delivered))
+	}
+
 }

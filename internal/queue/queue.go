@@ -5,6 +5,7 @@ package queue
 
 import (
 	"context"
+	"os"
 	"time"
 )
 
@@ -47,4 +48,14 @@ type Queue interface {
 	// error, releases the lease. If final is true the job moves to failed
 	// and stops retrying — that's the dead-letter state.
 	Fail(ctx context.Context, name, id string, jobErr error, final bool) error
+}
+
+// FromEnv selects the queue backend the same way storage.FromEnv selects the store
+// Filesystem mode has no durable queue: Memory means retries happen within a single run only
+// unsettled jobs die with the process
+func FromEnv(ctx context.Context) (Queue, error) {
+	if os.Getenv("STORAGE_BACKEND") == "dynamo" {
+		return NewDynamo(ctx)
+	}
+	return NewMemory(), nil
 }

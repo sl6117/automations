@@ -2,14 +2,16 @@ package twitterdigest
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/sl6117/automations/internal/ai"
 	"github.com/sl6117/automations/internal/config"
 	"github.com/sl6117/automations/internal/obs"
+	"github.com/sl6117/automations/internal/queue"
 	"github.com/sl6117/automations/internal/runner"
 	"github.com/sl6117/automations/internal/storage"
 	"github.com/sl6117/automations/pkg/sinks"
@@ -19,6 +21,10 @@ import (
 const (
 	digestTemperature = 0.2
 	digestMaxTokens   = 1500
+
+	queueName           = "twitter-digest"
+	deliveryLease       = 2 * time.Minute
+	deliveryMaxAttempts = 5
 )
 
 func init() {
@@ -31,6 +37,7 @@ type project struct {
 	sinks   []sinks.Sink
 	sinkFor func(Subscriber, Config, *runner.Runtime) (sinks.Sink, error)
 	store   storage.Store
+	jobs    queue.Queue
 }
 
 func (p *project) Name() string { return "twitter-digest" }
@@ -173,45 +180,101 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 		return advanceCursor(ctx, store, runTime, state, tweets)
 	}
 
-	sinkFor := p.sinkFor
-	if sinkFor == nil {
-		sinkFor = subscriberSink
+	jobs := p.jobs
+	if jobs == nil {
+		selected, err := queue.FromEnv(ctx)
+		if err != nil {
+			return err
+		}
+		jobs = selected
 	}
 
 	sections := make(map[string][]Section, len(digests))
-
 	for lang, message := range digests {
 		sections[lang] = splitSections(message)
 	}
-	delivered := 0
-	var deliveryErrs []error
 
+	// enqueue one durable job per subscriber. Once these are stored the content cannot be lost,
+	// so the cursor advances immediately - delivery success no longer gates fetch progress
 	for _, sub := range subs {
 		personal := assembleFor(sub, sections[sub.language()])
 		if personal == "" {
 			runTime.Log.Printf("[twitter-digest] subscriber %s: no matching content", sub.Name)
 			continue
 		}
-		sink, err := sinkFor(sub, cfg, runTime)
-		if err != nil {
-			deliveryErrs = append(deliveryErrs, err)
-			continue
+		id := newestID(tweets) + "#" + sub.Name
+		if err := jobs.Enqueue(ctx, queueName, queue.Job{ID: id, Payload: []byte(personal)}); err != nil {
+			return fmt.Errorf("enqueue job for %s: %w", sub.Name, err)
 		}
-		if err := sink.Deliver(ctx, personal); err != nil {
-			deliveryErrs = append(deliveryErrs, fmt.Errorf("delivery to %s: %w", sub.Name, err))
-			continue
-		}
-		delivered++
-		runTime.Log.Printf("[twitter-digest] delivered to %s via %s", sub.Name, sub.Sink)
+	}
+	if err := advanceCursor(ctx, store, runTime, state, tweets); err != nil {
+		return err
+	}
+	return p.drain(ctx, runTime, cfg, subs, jobs)
+
+}
+
+// drain claims and delivers every pending job, including leftovers from previous runs
+// that's how a subscriber who failed yesterday gets yesterday's digest tody
+// Failures settle the job (attempt counted, lease released)
+// rather than failing the run: the queue owns retries now
+func (p *project) drain(ctx context.Context, runTime *runner.Runtime, cfg Config, subs []Subscriber, jobs queue.Queue) error {
+	sinkFor := p.sinkFor
+	if sinkFor == nil {
+		sinkFor = subscriberSink
 	}
 
-	for _, e := range deliveryErrs {
-		runTime.Log.Printf("[twitter-digest] delivery FAILED: %v", e)
+	byName := make(map[string]Subscriber, len(subs))
+	for _, sub := range subs {
+		byName[sub.Name] = sub
 	}
-	if delivered == 0 && len(deliveryErrs) > 0 {
-		return errors.Join(deliveryErrs...)
+
+	pending, err := jobs.Pending(ctx, queueName)
+	if err != nil {
+		return fmt.Errorf("pending jobs: %w", err)
 	}
-	return advanceCursor(ctx, store, runTime, state, tweets)
+
+	for _, job := range pending {
+		ok, err := jobs.Claim(ctx, queueName, job.ID, deliveryLease)
+
+		if err != nil {
+			return fmt.Errorf("claim %s: %w", job.ID, err)
+		}
+		if !ok {
+			continue
+		}
+
+		_, name, found := strings.Cut(job.ID, "#")
+		sub, known := byName[name]
+		if !found || !known {
+			if err := jobs.Fail(ctx, queueName, job.ID, fmt.Errorf("unknown subscriber %q", name), true); err != nil {
+				return err
+			}
+			runTime.Log.Printf("[twitter-digest] job %s DEAD-LETTERED: unknown subscriber", job.ID)
+			continue
+		}
+		sink, err := sinkFor(sub, cfg, runTime)
+		if err == nil {
+			err = sink.Deliver(ctx, string(job.Payload))
+		}
+		if err != nil {
+			final := job.Attempts+1 >= deliveryMaxAttempts
+			if ferr := jobs.Fail(ctx, queueName, job.ID, err, final); ferr != nil {
+				return ferr
+			}
+			if final {
+				runTime.Log.Printf("[twitter-digest] job %s DEAD-LETTERED after %d attempts: %v", job.ID, job.Attempts+1, err)
+			} else {
+				runTime.Log.Printf("[twitter-digest] delivery FAILED (attempt %d/%d), queued for retry: %s: %v", job.Attempts+1, deliveryMaxAttempts, job.ID, err)
+			}
+			continue
+		}
+		if err := jobs.Complete(ctx, queueName, job.ID); err != nil {
+			return err
+		}
+		runTime.Log.Printf("[twitter-digest] delivered to %s via %s", sub.Name, sub.Sink)
+	}
+	return nil
 }
 
 func (p *project) digest(ctx context.Context, runTime *runner.Runtime, cfg Config, kept []sources.Tweet, language string) (string, ai.Usage, error) {
