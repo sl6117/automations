@@ -125,3 +125,26 @@ func (d *Dynamo) Get(ctx context.Context, key string) ([]byte, error) {
 	}
 	return buf.Bytes(), nil
 }
+
+// DeleteAll removes every item under key. Admin/seed use only
+func (d *Dynamo) DeleteAll(ctx context.Context, key string) error {
+	out, err := d.client.Query(ctx, &dynamodb.QueryInput{
+		TableName:              aws.String(d.table),
+		KeyConditionExpression: aws.String("pk = :pk"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":pk": &types.AttributeValueMemberS{Value: key},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("delete all %q: %w", key, err)
+	}
+	for _, item := range out.Items {
+		if _, err := d.client.DeleteItem(ctx, &dynamodb.DeleteItemInput{
+			TableName: aws.String(d.table),
+			Key:       map[string]types.AttributeValue{"pk": item["pk"], "sk": item["sk"]},
+		}); err != nil {
+			return fmt.Errorf("delete-all %q: %w", key, err)
+		}
+	}
+	return nil
+}

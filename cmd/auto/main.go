@@ -63,7 +63,12 @@ func cmdList() {
 }
 
 func cmdCost() {
-	if err := obs.Report(context.Background(), storage.NewFS(), os.Stdout); err != nil {
+	store, err := storage.FromEnv(context.Background())
+	if err != nil {
+		log.Fatalf("cost: %v", err)
+	}
+
+	if err := obs.Report(context.Background(), store, os.Stdout); err != nil {
 		log.Fatalf("cost: %v", err)
 	}
 }

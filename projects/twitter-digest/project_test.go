@@ -38,7 +38,8 @@ func (quietSource) Fetch(ctx context.Context) ([]sources.Tweet, error) {
 }
 
 func TestProjectRun(t *testing.T) {
-	t.Setenv("AUTOMATION_ROOT", t.TempDir())
+	root := t.TempDir()
+	t.Setenv("AUTOMATION_ROOT", root)
 	var buf bytes.Buffer
 	runTime := &runner.Runtime{
 		DryRun:     true,
@@ -46,7 +47,7 @@ func TestProjectRun(t *testing.T) {
 		ProjectDir: ".",
 	}
 
-	if err := (&project{source: sources.Mock{}}).Run(context.Background(), runTime); err != nil {
+	if err := (&project{source: sources.Mock{}, store: &storage.FS{Root: root}}).Run(context.Background(), runTime); err != nil {
 		t.Fatalf("run failed: %v", err)
 	}
 
@@ -75,7 +76,8 @@ func (f *fakeClient) Complete(ctx context.Context, req ai.Request) (ai.Response,
 }
 
 func TestProjectRunLLM(t *testing.T) {
-	t.Setenv("AUTOMATION_ROOT", t.TempDir())
+	root := t.TempDir()
+	t.Setenv("AUTOMATION_ROOT", root)
 	t.Setenv("OPENROUTER_API_KEY", "test-key")
 
 	fake := &fakeClient{resp: ai.Response{
@@ -89,7 +91,8 @@ func TestProjectRunLLM(t *testing.T) {
 	var buf bytes.Buffer
 	runTime := &runner.Runtime{DryRun: false, Log: log.New(&buf, "", 0), ProjectDir: "."}
 
-	p := &project{client: fake, source: sources.Mock{}, sinks: []sinks.Sink{sink}}
+	store := &storage.FS{Root: root}
+	p := &project{client: fake, source: sources.Mock{}, sinks: []sinks.Sink{sink}, store: store}
 
 	if err := p.Run(context.Background(), runTime); err != nil {
 		t.Fatalf("run failed: %v", err)
@@ -103,7 +106,7 @@ func TestProjectRunLLM(t *testing.T) {
 		t.Errorf("model = %q, want config model", fake.gotReq.Model)
 	}
 
-	state, err := loadState(context.Background(), storage.NewFS())
+	state, err := loadState(context.Background(), store)
 	if err != nil {
 		t.Fatalf("load state: %v", err)
 	}
@@ -113,7 +116,8 @@ func TestProjectRunLLM(t *testing.T) {
 }
 
 func TestProjectRunSkipsWhenNothingKept(t *testing.T) {
-	t.Setenv("AUTOMATION_ROOT", t.TempDir())
+	root := t.TempDir()
+	t.Setenv("AUTOMATION_ROOT", root)
 
 	fake := &fakeClient{}
 	sink := &fakeSink{}
@@ -121,7 +125,8 @@ func TestProjectRunSkipsWhenNothingKept(t *testing.T) {
 	var buf bytes.Buffer
 	runTime := &runner.Runtime{DryRun: false, Log: log.New(&buf, "", 0), ProjectDir: "."}
 
-	p := &project{client: fake, source: quietSource{}, sinks: []sinks.Sink{sink}}
+	store := &storage.FS{Root: root}
+	p := &project{client: fake, source: quietSource{}, sinks: []sinks.Sink{sink}, store: store}
 
 	if err := p.Run(context.Background(), runTime); err != nil {
 		t.Fatalf("run failed: %v", err)
@@ -134,7 +139,7 @@ func TestProjectRunSkipsWhenNothingKept(t *testing.T) {
 		t.Errorf("delivered %d messages, want 0", len(sink.delivered))
 	}
 
-	state, err := loadState(context.Background(), storage.NewFS())
+	state, err := loadState(context.Background(), store)
 	if err != nil {
 		t.Fatalf("load state: %v", err)
 	}
@@ -171,6 +176,7 @@ func TestProjectRunRoutesSubscribers(t *testing.T) {
 	p := &project{
 		client: fake,
 		source: sources.Mock{},
+		store:  &storage.FS{Root: root},
 		sinkFor: func(sub Subscriber, cfg Config, rt *runner.Runtime) (sinks.Sink, error) {
 			s := &fakeSink{}
 			got[sub.Name] = s
@@ -230,6 +236,7 @@ func TestProjectRunPerLanguageDigests(t *testing.T) {
 	p := &project{
 		client: fake,
 		source: sources.Mock{},
+		store:  &storage.FS{Root: root},
 		sinkFor: func(sub Subscriber, cfg Config, rt *runner.Runtime) (sinks.Sink, error) {
 			s := &fakeSink{}
 			got[sub.Name] = s

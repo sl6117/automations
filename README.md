@@ -1,3 +1,5 @@
+![CI](https://github.com/sl6117/automations/actions/workflows/ci.yml/badge.svg)
+
 # Personal Automation Foundation
 
 A small, reusable "automation OS" written in Go: one runner binary, pluggable automation projects

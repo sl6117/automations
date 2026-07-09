@@ -43,7 +43,11 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 
 	store := p.store
 	if store == nil {
-		store = storage.NewFS()
+		selected, err := storage.FromEnv(ctx)
+		if err != nil {
+			return err
+		}
+		store = selected
 	}
 
 	// gather
@@ -134,7 +138,7 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 		}
 	}
 
-	if _, err := obs.LogRun(context.Background(), storage.NewFS(), obs.Run{
+	if _, err := obs.LogRun(context.Background(), store, obs.Run{
 		Project:      p.Name(),
 		Model:        cfg.Model,
 		DryRun:       runTime.DryRun,

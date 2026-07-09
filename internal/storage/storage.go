@@ -5,6 +5,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"os"
 )
 
 // ErrNotExist is returned by Get when the key has never been written
@@ -24,4 +25,11 @@ type Store interface {
 
 	// Append adds one line to the stream at key (for jsonl-style logs)
 	Append(ctx context.Context, key string, line []byte) error
+}
+
+func FromEnv(ctx context.Context) (Store, error) {
+	if os.Getenv("STORAGE_BACKEND") == "dynamo" {
+		return NewDynamo(ctx)
+	}
+	return NewFS(), nil
 }
