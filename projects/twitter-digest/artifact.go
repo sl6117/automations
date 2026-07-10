@@ -23,6 +23,8 @@ type Artifact struct {
 	OutputTokens int             `json:"outputTokens"`
 	EvalFailures []string        `json:"evalFailures"`
 	EvalCoverage string          `json:"evalCoverage"`
+	Judge        *JudgeReport    `json:"judge,omitempty"`
+	JudgeError   string          `json:"judgeError,omitempty"`
 }
 
 // saveArtifact writes one artifact per run under logs/runs/ via the

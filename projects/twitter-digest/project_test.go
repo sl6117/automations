@@ -3,6 +3,7 @@ package twitterdigest
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log"
 	"os"
@@ -209,9 +210,16 @@ func TestProjectRunRoutesSubscribers(t *testing.T) {
 	}
 }
 
-type langClient struct{ prompts []string }
+type langClient struct {
+	prompts    []string
+	judgeCalls int
+}
 
 func (m *langClient) Complete(ctx context.Context, req ai.Request) (ai.Response, error) {
+	if strings.Contains(req.Prompt, "quality evaluator") {
+		m.judgeCalls++
+		return ai.Response{Text: verdictJSON, Model: "claude-haiku-4-5", Usage: ai.Usage{InputTokens: 5, OutputTokens: 5}}, nil
+	}
 	m.prompts = append(m.prompts, req.Prompt)
 	text := "## AI\n- english story"
 
@@ -255,6 +263,9 @@ func TestProjectRunPerLanguageDigests(t *testing.T) {
 	}
 	if len(fake.prompts) != 2 {
 		t.Errorf("LLM called %d times, want 2 (one per language)", len(fake.prompts))
+	}
+	if fake.judgeCalls != 2 {
+		t.Errorf("judge called %d times, want 2 (one per language)", fake.judgeCalls)
 	}
 	if a := got["sang"]; a == nil || len(a.delivered) != 1 || !strings.Contains(a.delivered[0], "english story") {
 		t.Errorf("sang got wrong digest: %#v", a)
@@ -433,4 +444,100 @@ func TestDeadLetterAlertsOperator(t *testing.T) {
 		t.Errorf("dead-lettered job still pending: %#v", pending)
 	}
 
+}
+
+func readArtifact(t *testing.T, root, lang string) Artifact {
+	t.Helper()
+	matches, err := filepath.Glob(filepath.Join(root, "logs", "runs", "*-"+lang+".json"))
+	if err != nil || len(matches) != 1 {
+		t.Fatalf("want exactly one %s artifact, got %v (err: %v)", lang, matches, err)
+	}
+	data, err := os.ReadFile(matches[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var a Artifact
+	if err := json.Unmarshal(data, &a); err != nil {
+		t.Fatalf("unmarshal artifact: %v", err)
+	}
+	return a
+}
+
+func TestJudgeVerdictsRecordedInArtifact(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("AUTOMATION_ROOT", root)
+	dir := filepath.Join(root, "projects", "twitter-digest")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	subsJSON := `[{"name": "sang", "sink": "console", "topics": ["*"]}]`
+	if err := os.WriteFile(filepath.Join(dir, "subscribers.json"), []byte(subsJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sink := &fakeSink{}
+	p := &project{
+		client: &langClient{}, // answers judge prompts with verdictJSON
+		source: sources.Mock{},
+		store:  &storage.FS{Root: root},
+		jobs:   queue.NewMemory(),
+		sinkFor: func(sub Subscriber, cfg Config, rt *runner.Runtime) (sinks.Sink, error) {
+			return sink, nil
+		},
+	}
+	var buf bytes.Buffer
+	runTime := &runner.Runtime{DryRun: false, Log: log.New(&buf, "", 0), ProjectDir: "."}
+	if err := p.Run(context.Background(), runTime); err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+
+	a := readArtifact(t, root, "english")
+	if a.JudgeError != "" {
+		t.Errorf("unexpected judge error: %q", a.JudgeError)
+	}
+	if a.Judge == nil {
+		t.Fatal("judge verdicts missing from artifact")
+	}
+	if !a.Judge.Faithfulness.Pass || a.Judge.Coverage.Pass {
+		t.Errorf("verdicts not preserved: %+v", a.Judge)
+	}
+	if a.Judge.Coverage.Reason != "dropped the Dario tweet" {
+		t.Errorf("failure reason not preserved: %q", a.Judge.Coverage.Reason)
+	}
+}
+
+func TestJudgeFailureNeverBlocksDelivery(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("AUTOMATION_ROOT", root)
+	dir := filepath.Join(root, "projects", "twitter-digest")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	subsJSON := `[{"name": "sang", "sink": "console", "topics": ["*"]}]`
+	if err := os.WriteFile(filepath.Join(dir, "subscribers.json"), []byte(subsJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sink := &fakeSink{}
+	p := &project{
+		// answers every prompt with digest text: the judge gets unparseable output
+		client: &fakeClient{resp: ai.Response{Text: "## AI\n- big story", Model: "claude-haiku-4-5"}},
+		source: sources.Mock{},
+		store:  &storage.FS{Root: root},
+		jobs:   queue.NewMemory(),
+		sinkFor: func(sub Subscriber, cfg Config, rt *runner.Runtime) (sinks.Sink, error) {
+			return sink, nil
+		},
+	}
+	var buf bytes.Buffer
+	runTime := &runner.Runtime{DryRun: false, Log: log.New(&buf, "", 0), ProjectDir: "."}
+	if err := p.Run(context.Background(), runTime); err != nil {
+		t.Fatalf("a judge failure must never fail the run: %v", err)
+	}
+	if len(sink.delivered) != 1 {
+		t.Errorf("deliveries = %d, want 1: delivery must not depend on the judge", len(sink.delivered))
+	}
+
+	a := readArtifact(t, root, "english")
+	if a.Judge != nil || a.JudgeError == "" {
+		t.Errorf("want nil verdicts and a recorded judge error, got %+v / %q", a.Judge, a.JudgeError)
+	}
 }

@@ -147,6 +147,33 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 			runTime.Log.Printf("[twitter-digest] eval failure (%s): %s", lang, f)
 		}
 		if !runTime.DryRun {
+			var judge *JudgeReport
+			judgeErr := ""
+			jclient, cerr := p.resolveClient(cfg)
+			switch {
+			case cerr != nil:
+				judgeErr = cerr.Error()
+			case jclient == nil:
+				// offline heuristic mode: no LLM, nothing real to judge
+			default:
+				report, jusage, jerr := judgeDigest(ctx, jclient, cfg.Model, runTime.ProjectDir, cfg.Topics, kept, message, lang)
+				total.InputTokens += jusage.InputTokens
+				total.OutputTokens += jusage.OutputTokens
+				if jerr != nil {
+					judgeErr = jerr.Error()
+					runTime.Log.Printf("[twitter-digest] judge error (%s): %v", lang, jerr)
+				} else {
+					judge = &report
+					if fails := report.Failures(); len(fails) == 0 {
+						runTime.Log.Printf("[twitter-digest] judge (%s): all dimensions pass", lang)
+					} else {
+						for _, f := range fails {
+							runTime.Log.Printf("[twitter-digest] judge failure (%s): %s", lang, f)
+						}
+					}
+				}
+			}
+
 			if err := saveArtifact(ctx, store, Artifact{
 				Model:        cfg.Model,
 				Language:     lang,
@@ -156,6 +183,8 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 				OutputTokens: usage.OutputTokens,
 				EvalFailures: failures,
 				EvalCoverage: coverage,
+				Judge:        judge,
+				JudgeError:   judgeErr,
 			}); err != nil {
 				return fmt.Errorf("save artifact: %w", err)
 			}
@@ -324,14 +353,9 @@ func (p *project) drain(ctx context.Context, runTime *runner.Runtime, cfg Config
 
 func (p *project) digest(ctx context.Context, runTime *runner.Runtime, cfg Config, kept []sources.Tweet, language string) (string, ai.Usage, error) {
 
-	client := p.client
-
-	if client == nil {
-		c, err := selectClient(cfg)
-		if err != nil {
-			return "", ai.Usage{}, err
-		}
-		client = c
+	client, err := p.resolveClient(cfg)
+	if err != nil {
+		return "", ai.Usage{}, err
 	}
 
 	if runTime.DryRun || client == nil {
@@ -356,6 +380,15 @@ func (p *project) digest(ctx context.Context, runTime *runner.Runtime, cfg Confi
 	}
 	runTime.Log.Printf("[twitter-digest] model=%s tokens in=%d out=%d", resp.Model, resp.Usage.InputTokens, resp.Usage.OutputTokens)
 	return resp.Text, resp.Usage, nil
+}
+
+// resolveClient returns the injected client or selects one from config
+// nil client (no API key) means offline-heuristic mode
+func (p *project) resolveClient(cfg Config) (ai.Client, error) {
+	if p.client != nil {
+		return p.client, nil
+	}
+	return selectClient(cfg)
 }
 
 func selectSource(cfg Config, sinceID string) (sources.Source, error) {

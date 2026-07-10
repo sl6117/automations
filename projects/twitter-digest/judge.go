@@ -110,3 +110,23 @@ func judgeDigest(ctx context.Context, client ai.Client, model, projectDir string
 	}
 	return report, resp.Usage, nil
 }
+
+// Failures lists the failing dimensions with ther reasons
+// empty when pass
+func (r JudgeReport) Failures() []string {
+	var out []string
+	for _, d := range []struct {
+		name string
+		v    Verdict
+	}{
+		{"faithfulness", r.Faithfulness},
+		{"topicRouting", r.TopicRouting},
+		{"coverage", r.Coverage},
+		{"clarity", r.Clarity},
+	} {
+		if !d.v.Pass {
+			out = append(out, d.name+": "+d.v.Reason)
+		}
+	}
+	return out
+}
