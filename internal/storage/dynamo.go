@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -147,4 +148,41 @@ func (d *Dynamo) DeleteAll(ctx context.Context, key string) error {
 		}
 	}
 	return nil
+}
+
+// List scans for keys beginning with prefix. A scan, not a query: pk is the partition key,
+// and DDB can only condition on a full partition key - prefix-matching across partitions requires reading the table.
+// Fine at this table's size; a GSI on the project attribute is the upgrade path if it grows.
+func (d *Dynamo) List(ctx context.Context, prefix string) ([]string, error) {
+	seen := map[string]bool{}
+	var startKey map[string]types.AttributeValue
+	for {
+		out, err := d.client.Scan(ctx, &dynamodb.ScanInput{
+			TableName:            aws.String(d.table),
+			FilterExpression:     aws.String("begins_with(pk, :p)"),
+			ProjectionExpression: aws.String("pk"),
+			ExpressionAttributeValues: map[string]types.AttributeValue{
+				":p": &types.AttributeValueMemberS{Value: prefix},
+			},
+			ExclusiveStartKey: startKey,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list %q: %w", prefix, err)
+		}
+		for _, item := range out.Items {
+			if pk, ok := item["pk"].(*types.AttributeValueMemberS); ok {
+				seen[pk.Value] = true
+			}
+		}
+		if out.LastEvaluatedKey == nil {
+			break
+		}
+		startKey = out.LastEvaluatedKey
+	}
+	keys := make([]string, 0, len(seen))
+	for k := range seen {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys, nil
 }

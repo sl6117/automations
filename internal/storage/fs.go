@@ -4,8 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	iofs "io/fs"
 	"os"
+	"path"
 	"path/filepath"
+	"sort"
+	"strings"
 )
 
 // FS stores each key as a file under Root. It perserves the current
@@ -67,4 +71,37 @@ func (f *FS) Append(_ context.Context, key string, line []byte) error {
 		return fmt.Errorf("append %q: %w", key, err)
 	}
 	return nil
+}
+
+// List walks only the directory portion of the prefix, not all of the Root-
+// Root is the repo in production, and walking .git/ or bin/ would be thousands of wasted stats
+func (f *FS) List(_ context.Context, prefix string) ([]string, error) {
+	base := path.Dir(strings.TrimSuffix(prefix, "/") + "/x")
+	dir := filepath.Join(f.Root, filepath.FromSlash(base))
+
+	var keys []string
+	err := filepath.WalkDir(dir, func(p string, d iofs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(f.Root, p)
+		if err != nil {
+			return err
+		}
+		if key := filepath.ToSlash(rel); strings.HasPrefix(key, prefix) {
+			keys = append(keys, key)
+		}
+		return nil
+	})
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("list %q: %w", prefix, err)
+	}
+	sort.Strings(keys)
+	return keys, nil
 }

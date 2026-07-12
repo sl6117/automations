@@ -99,3 +99,40 @@ func TestDynamoAppendAccumulateLines(t *testing.T) {
 		t.Fatalf("unexpected content: %q", got)
 	}
 }
+
+func TestDynamoListDedupesStreamsAndSorts(t *testing.T) {
+	d := newTestDynamo(t)
+	ctx := context.Background()
+
+	prefix := fmt.Sprintf("test/list-%d/", time.Now().UnixNano())
+	keyA := prefix + "a.json"
+	keyB := prefix + "b.json"
+	keyS := prefix + "stream.jsonl"
+
+	for _, k := range []string{keyA, keyB, keyS} {
+		cleanup(t, d, k)
+	}
+
+	// put b before a: sorted output must not depend on write order
+	if err := d.Put(ctx, keyB, []byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Put(ctx, keyA, []byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	// two appends under one key: List must return that key exactly once
+	if err := d.Append(ctx, keyS, []byte("1")); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Append(ctx, keyS, []byte("2")); err != nil {
+		t.Fatal(err)
+	}
+	got, err := d.List(ctx, prefix)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	want := []string{keyA, keyB, keyS}
+	if len(got) != 3 || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
+		t.Errorf("list = %v, want %v (deduped, sorted)", got, want)
+	}
+}

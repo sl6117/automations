@@ -25,6 +25,11 @@ type Store interface {
 
 	// Append adds one line to the stream at key (for jsonl-style logs)
 	Append(ctx context.Context, key string, line []byte) error
+
+	// List returns all keys beginning with prefix, lexically sroted -
+	// timestamp-named keys therefor come back in chronological order
+	// an unused prefix yields an empty list, not an error
+	List(ctx context.Context, prefix string) ([]string, error)
 }
 
 func FromEnv(ctx context.Context) (Store, error) {

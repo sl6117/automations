@@ -46,3 +46,32 @@ func TestFSAppendAccumulatesLines(t *testing.T) {
 		t.Fatalf("unexpected content: %q", got)
 	}
 }
+
+func TestFSListReturnsSortedKeysUnderPrefixOnly(t *testing.T) {
+	ctx := context.Background()
+	f := &FS{Root: t.TempDir()}
+
+	for _, key := range []string{
+		"logs/runs/2026-07-09-b.json",
+		"logs/runs/2026-07-07-a.json",
+		"logs/cost-log.jsonl",
+		"projects/twitter-digest/state.json",
+	} {
+		if err := f.Put(ctx, key, []byte("x")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := f.List(ctx, "logs/runs/")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	want := []string{"logs/runs/2026-07-07-a.json", "logs/runs/2026-07-09-b.json"}
+	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("list = %v, want %v (sorted, prefix-scoped)", got, want)
+	}
+
+	empty, err := f.List(ctx, "nothing/here/")
+	if err != nil || len(empty) != 0 {
+		t.Errorf("unused prefix: got %v, %v; want empty list, nil error", empty, err)
+	}
+}
