@@ -27,12 +27,17 @@ mkdir -p logs
 
 {
     echo "===== digest run: $(date -u +%Y-%m-%dT%H:%M:%SZ) ====="
-    # ./bin/auto run twitter-digest
     ok=0
     for attempt in 1 2 3; do
         if ./bin/auto run twitter-digest; then
             ok=1
             break
+        else
+            code=$?
+            if [ "$code" -eq 3 ]; then
+                echo "non-retryable failure (exit $code); not retrying"
+                break
+            fi
         fi
         echo "attempt $attempt failed; retrying in 60s..."
         sleep 60

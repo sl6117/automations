@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -32,6 +33,31 @@ func (f *fakeSink) Deliver(ctx context.Context, message string) error {
 }
 
 type quietSource struct{}
+
+type quotaSource struct{}
+
+func (quotaSource) Name() string { return "quota" }
+
+func (quotaSource) Fetch(ctx context.Context) ([]sources.Tweet, error) {
+	return nil, fmt.Errorf("x api 403: %w", sources.ErrQuota)
+}
+
+func TestQuotaFetchFailureAlertsOperatorAndFailsRun(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("AUTOMATION_ROOT", root)
+	alert := &fakeSink{}
+	p := &project{source: quotaSource{}, store: &storage.FS{Root: root}, alert: alert}
+
+	var buf bytes.Buffer
+	runTime := &runner.Runtime{DryRun: false, Log: log.New(&buf, "", 0), ProjectDir: "."}
+
+	if err := p.Run(context.Background(), runTime); err == nil {
+		t.Fatal("a quota failure must still fail the run - there is nothing to deliver")
+	}
+	if len(alert.delivered) != 1 || !strings.Contains(alert.delivered[0], "spend cap") {
+		t.Errorf("operator alert = %#v, want one spend-cap notice", alert.delivered)
+	}
+}
 
 func (quietSource) Name() string { return "quiet" }
 

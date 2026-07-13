@@ -2,6 +2,7 @@ package sources
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -276,5 +277,19 @@ func TestXAPIFetchFirstRunFetchesOnePage(t *testing.T) {
 	}
 	if requests != 1 {
 		t.Errorf("made %d requests, want 1 (no cursor = single page)", requests)
+	}
+}
+
+func TestFetchSpendCapIsTypeQuotaError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(`{"detail":"Your monthly spend cap has been reached."}`))
+	}))
+	defer server.Close()
+
+	x := XAPI{BearerToken: "t", ListID: "1", BaseURL: server.URL}
+
+	if _, err := x.Fetch(context.Background()); !errors.Is(err, ErrQuota) {
+		t.Fatalf("want ErrQuota, got %v", err)
 	}
 }

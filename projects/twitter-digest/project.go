@@ -2,6 +2,7 @@ package twitterdigest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -74,7 +75,17 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 	}
 	tweets, err := source.Fetch(ctx)
 	if err != nil {
-		return fmt.Errorf("fetch from %s: %w", source.Name(), err)
+		err = fmt.Errorf("fetch from %s: %w", source.Name(), err)
+
+		if errors.Is(err, sources.ErrQuota) {
+			if alert := p.alertSink(); alert != nil {
+				msg := "twitter-digest: fetch refused by X API quota/spend cap - no digests until it resets or is raised"
+				if aerr := alert.Deliver(ctx, msg); aerr != nil {
+					runTime.Log.Printf("[twitter-digest] alert delivery failed: %v", aerr)
+				}
+			}
+		}
+		return err
 	}
 
 	// process (no tokens) + reason (heuristic, no tokens)

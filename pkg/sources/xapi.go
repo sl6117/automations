@@ -3,6 +3,7 @@ package sources
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,6 +16,11 @@ const (
 	defaultXAPIBaseURL = "https://api.x.com/2"
 	defaultMaxPages    = 3 // cap on pages per fetch: each page is 50 billed reads
 )
+
+// ErrQuota marks non-transient quota/billing refusals (the x monthly spend cap)
+// Callers detect it with errors.Is: retrying a spend cap just delays
+// the same failure, so it should alert and fail fast instead
+var ErrQuota = errors.New("quota exhausted")
 
 // XAPI is a Source backed by the X (Twitter) API v2 list-timeline endpoint
 // Read-only, app-only Bearer auth. BaseURL is overridable so tests point at httptest
@@ -152,6 +158,10 @@ func (x XAPI) fetchPage(ctx context.Context, httpClient *http.Client, base, pagi
 
 	if err != nil {
 		return parsed, fmt.Errorf("read response: %w", err)
+	}
+
+	if resp.StatusCode == http.StatusForbidden {
+		return parsed, fmt.Errorf("x api %d: %s: %w", resp.StatusCode, truncate(string(data), 300), ErrQuota)
 	}
 
 	if resp.StatusCode != http.StatusOK {

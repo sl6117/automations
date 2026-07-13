@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/sl6117/automations/internal/obs"
 	"github.com/sl6117/automations/internal/runner"
+	"github.com/sl6117/automations/pkg/sources"
 
 	// Project registrations go here as blank imports so their init() runs.
 	"github.com/sl6117/automations/internal/storage"
@@ -99,7 +101,11 @@ func cmdRun(args []string) {
 	}
 
 	if err := project.Run(context.Background(), runTime); err != nil {
-		log.Fatalf("run: project %q failed: %v", name, err)
+		log.Printf("run: project %q failed: %v", name, err)
+		if errors.Is(err, sources.ErrQuota) {
+			os.Exit(3)
+		}
+		os.Exit(1)
 	}
 
 }
