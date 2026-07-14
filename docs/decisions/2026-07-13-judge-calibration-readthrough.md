@@ -158,8 +158,66 @@ stronger evaluator) is an accepted pattern if it comes to that.
 
 ## Next steps
 
-1. Owner types D1 (judge.md) + D2 (config.json / digest.md) edits from drafted text.
-2. `rejudge -force` A/B on selected artifacts (include the two judge-error artifacts).
-3. Compare against this doc's human scores; decide on Sonnet judge (D3).
+1. ~~Owner types D1 (judge.md) + D2 (config.json / digest.md) edits from drafted text.~~ (done, commit `0825ace`)
+2. ~~`rejudge -force` A/B on selected artifacts (include the two judge-error artifacts).~~ (done same day — results below)
+3. ~~Compare against this doc's human scores; decide on Sonnet judge (D3).~~ (D3 trigger met — see addendum)
 4. Update the north-star doc to close step 6; scope step 7 (draft → judge → revise loop,
    faithfulness as the leading gate candidate, advisory-only clarity).
+
+## Addendum (same day): A/B results — new rubric, Haiku judge
+
+`rejudge -force` over all 15 artifacts with the rewritten rubric (still `claude-haiku-4-5`,
+temp 0). Recorded here because the next rejudge overwrites these verdicts in place.
+
+**Rulebook-class failures: essentially eliminated.**
+- 15/15 parsed (previously 2 judge errors, ~8% parse-failure rate).
+- All config-driven routing disputes gone (UFC, Vance, FIFA/Other). Jul 9 17:54 EN and
+  Jul 11 EN now pass clean; Jul 9 16:01 EN's incoherent coverage/clarity bundle gone.
+- All leniency coverage false positives gone (NYC jumper, Musk video, Zuckerberg RT).
+- Truncation penalties gone. UFC same-story redundancy correctly moved to clarity.
+
+**Capability-class failures: persisted, as predicted.**
+- Verdict/reason self-contradiction survived an explicit "verdict must match reason" rule:
+  17:55 KO coverage reasons "Upon reflection ... omission is justified" then fails;
+  18:20 KO topicRouting concedes Econ placement "defensible" then fails (violating the
+  written defensible=pass rule).
+- Korean misreads continued on the same artifact as before: claimed the "donors and friends"
+  qualifier was omitted (기부자 및 측근 is present); called 억 a "won symbol".
+- Recall dropped: previously-agreed true positives vanished this round (Burry omission,
+  Starlink tense flip, AlphaGo clarity garble, Jul 13 KO Hormuz duplication); the 10x money
+  error's FAIL survived but its reason degraded. Run-to-run verdict instability at temp 0
+  is itself a finding: a Haiku pass is weak evidence.
+- New verdicts on the former orphan (Jul 12 18:42 EN) include a potentially serious catch
+  (unconfirmed death reported as fact — verify against the artifact).
+
+**Decision executed:** D3 trigger met. Added `judgeModel` config field (value receiver
+`Config.judgeModel()` defaults to `Model`; judge + rejudge call sites and rejudge cost-log
+attribution updated; `TestProjectRunLLM` re-pinned to assert generator=model, judge=judgeModel).
+Judge set to a Sonnet-class model for the next A/B round; generator stays on Haiku
+(asymmetric drafter/evaluator pattern). Compare the Sonnet round against the human scores
+in this doc, then close step 6.
+
+## Addendum 2 (same day): A/B results — new rubric, Sonnet judge (FINAL)
+
+`rejudge -force` with `judgeModel: claude-sonnet-4-5` (commit `9310a93`). Outcome: **keep
+the Sonnet judge.**
+
+- Self-contradictions: zero. Verdicts match reasons; defensible placements pass.
+- Korean comprehension fixed: the 10x money error is named precisely (1.5억 = 150M vs $1.5B)
+  and the previously-misread 약 130억 rendering is explicitly checked and cleared. New real
+  catch Haiku missed: "Anthropic 비모델" mistranslation reverses "top non-Anthropic model".
+- Recovered true positives: 10x error, UFC same-story duplication (correctly under clarity),
+  Bangkok-in-Science (both languages), Meta "commits to" certainty inflation, Lindsey Graham
+  unconfirmed-death-as-fact. UFC-in-Other now correctly fails routing per the REWRITTEN
+  Politics description — the config fix and the judge agree with the owner's intent.
+- Residual weaknesses, accepted: one over-strict multi-complaint verdict (Jul 9 16:01 EN:
+  "has pardoned" is supported; "approximately $13 billion" was misquoted as unqualified);
+  Jul 11 passes clean so the Burry omission and Starlink tense flip stay uncaught (judge
+  passes remain weak evidence — design gates around fails, not passes); one backtick parse
+  failure (Jul 13 KO, ~7%, model-independent — shelf: harden extractJSON, e.g. strip fences
+  before extraction).
+
+**Step 6 architecture as shipped:** Haiku drafts, Sonnet judges (asymmetric
+drafter/evaluator), rubric = shared contract with the generator prompt, verdicts stored on
+artifacts, observability-only until step 7. Judge fails are high-precision and suitable as
+step-7 revision-loop gates (faithfulness first); judge passes are advisory.

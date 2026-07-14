@@ -65,7 +65,16 @@ not as a separate track.
    mock cursor overwrote production state, test digests were delivered to real
    subscribers; repaired by re-running cmd/seed). Every project test must inject
    `store` explicitly, and "no messages arrived anywhere" is part of a passing run.
-6. Tier-2 LLM judge over run artifacts (evaluator agent)
+6. ~~Tier-2 LLM judge over run artifacts (evaluator agent)~~ (done 2026-07-13: judge on
+   every live digest per language + rejudge replay tool + human calibration read-through
+   of all 15 artifacts — see `2026-07-13-judge-calibration-readthrough.md`.
+   Lesson learned #5: an uncalibrated judge is just a second opinion. Scoring 30 verdicts
+   against the owner separated rubric bugs (fixed free, in prompt text: concrete decision
+   rules, closed-world failure rule, judge must know the generator's full contract) from
+   capability limits (self-contradicting verdicts, Korean misreads), which justified an
+   asymmetric setup: Haiku drafts, Sonnet judges via `judgeModel` config. Judge FAILS are
+   high-precision gate material for step 7; judge PASSES are weak evidence, don't gate on
+   them.)
 7. Generator -> evaluator revise loop using that judge (loop engineering)
 8. Weekly deep-dive project (orchestration + MCP + fan-out)
 9. Lambda + EventBridge via CDK — "the thing that runs the worker," last, not first
