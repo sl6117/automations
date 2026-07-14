@@ -3,8 +3,7 @@
     "topics": [
         {"name": "AI", "description": "AI models, research, agents, developer tooling, and AI industry news"},
         {"name": "Econ", "description": "macroeconomics: inflation, rates, central banks, jobs, trade, housing. NOT politician's personal finances or scandals - those are Politics."},
-        {"name": "Politics", "description": "About personal incidents of politicians. News about legislation, policies should go into specific policy area buckets, not this bucket."},
-        {"name": "Crypto", "description": "Cryptocurrencies, blockchains, DeFi, crypto ETFs and regulation. News about adoption, and market events."},
+        {"name": "Politics", "description": "US domestic politics: politicians' statements, deals, and scandals, political violence and plots, and legal cases involving political figures. Legislation and policy news goes to its policy-area bucket (e.g. Econ); international affairs go to World News."},        {"name": "Crypto", "description": "Cryptocurrencies, blockchains, DeFi, crypto ETFs and regulation. News about adoption, and market events."},
         {"name": "Stocks", "description": "equities, earnings, valuations, notable market moves"},
         {"name": "World News", "description": "geopolitics, elections, government policy, international events, global issues"},
         {"name": "Tech", "description": "innovation, startups, VC, venture capital, and technology industry news"},

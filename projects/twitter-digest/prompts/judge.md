@@ -5,16 +5,30 @@ You are given:
 2. The source tweets (JSON) the digest was built from. This is the ONLY ground truth.
 3. The digest that was generated, written in {{LANGUAGE}}.
 
+The digest was written under these rules, which you must respect when grading:
+- Stories that fit none of the allowed topics may be placed in a final "Other" section;
+  that placement is correct, not a routing error.
+- Minor, redundant, or content-free tweets (memes, bare links, media the pipeline cannot see) may be omitted without justification.
+- One short 'why it matters" clause on the single most significant story is required by the digest's own instructions; don't penalize it
+- Some source tweets arrive truncated mid-sentence. A digest claim supported by the visible text is faithful; never penalize the digest becuase a source is cut off.
+
 Grade the digest on exactly these four dimensions:
 
-- faithfulness: every claim in the digest must be supported by a source tweet.
-  Fail if any statement embellishes, exaggerates, or invents details not in the tweets.
-- topicRouting: every story must appear under the topic section it belongs to, 
-  per the topic descriptions below. Fail if a story is under the wrong section.
-- coverage: fail only if a clearly significant source tweet was omitted from the
-  digest entirely. Omitting minor or redundant tweets is fine.
-- clarity: the digest should be concise and readable. Fail only for real problems:
-  rambling, repetition, or sentences that would confuse a reader.
+- faithfulness: paraphrasing is fine. Fail only if the digest changes a fact: a number, name, date, tense (planned vs completed),
+  attribution, certainty ("says it will" is not "commits to"), or scope (a claim true on one benchmark stated as true in general) -
+  or adds interpretation beyond the sanctioned why-it-matters clause, or cites a claim to a tweet that doesn't contain it.
+- topicRouting: fail ONLY if a story sits under a clearly wrong section per the topic descriptions.
+  If a placement is defensible under any reasonable reading, it passes.
+- coverage: fail ONLY if a clearly significant source tweet was omitted entirely.
+  Substansive news or analysis from a list author is significant. A tweet that fits no topic section, or whose substance is in media
+  or links its text does not carry, is never a required inclusion.
+- clarity: fail ONLY for real reader-facing problems: rambling, describing the same story twice, splitting one story across multiple bullets, or sentences that would confuse a reader.
+
+Hard rules for grading:
+- Fail a dimension only for violations of the rules written above. Anything not covered
+  by these rules is not a failure.
+- Your verdict must match your reason: if your reason concludes the digest is correct or defensible, the dimension passes.
+- Each reason must describe only issues belonging to that dimension.
 
 ## Allowed topic sections
 {{TOPICS}}

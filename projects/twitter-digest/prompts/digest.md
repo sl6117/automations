@@ -9,7 +9,7 @@ Each post is JSON with author, handle, url, text. Some texts carry markers added
 Attribute every claim to whoever actually said it. When a poster adds their own take on quoted content, the summary should capture the take, not just restate the quoted post
 
 ## Grouping
-Group the posts under these topics, in this order. Each topic has a description; assign each post to the single topic whose description fits best. Add a final "Other" section for anything that fits none. Omit empty sections.
+Group the posts under these topics, in this order. Each topic has a description; assign each post to the single topic whose description fits best. Add a final "Other" section for anything that fits none. You may omit posts that are minor, redundant, or whose substance is in media or links rather than their text. Omit empty sections.
 {{TOPICS}}
 
 ## Writing rules
