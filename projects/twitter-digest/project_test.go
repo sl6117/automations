@@ -96,12 +96,14 @@ func TestProjectRun(t *testing.T) {
 }
 
 type fakeClient struct {
-	resp   ai.Response
-	gotReq ai.Request
+	resp    ai.Response
+	gotReq  ai.Request
+	gotReqs []ai.Request
 }
 
 func (f *fakeClient) Complete(ctx context.Context, req ai.Request) (ai.Response, error) {
 	f.gotReq = req
+	f.gotReqs = append(f.gotReqs, req)
 	return f.resp, nil
 }
 
@@ -132,8 +134,11 @@ func TestProjectRunLLM(t *testing.T) {
 		t.Errorf("sink deliveries = %#v, want one message with model text", sink.delivered)
 	}
 
-	if fake.gotReq.Model != "claude-haiku-4-5" {
-		t.Errorf("model = %q, want config model", fake.gotReq.Model)
+	if fake.gotReqs[0].Model != "claude-haiku-4-5" {
+		t.Errorf("model = %q, want config model", fake.gotReqs[0].Model)
+	}
+	if last := fake.gotReqs[len(fake.gotReqs)-1].Model; last != "claude-sonnet-4-5" {
+		t.Errorf("judge model = %q, want config judgeModel", last)
 	}
 
 	state, err := loadState(context.Background(), store)

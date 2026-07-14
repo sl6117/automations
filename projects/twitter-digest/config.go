@@ -12,10 +12,18 @@ type Config struct {
 	EmailFrom     string   `json:"emailFrom"`
 	EmailTo       []string `json:"emailTo"`
 	EmailSubject  string   `json:"emailSubject"`
+	JudgeModel    string   `json:"judgeModel"` // optional; empty = judge with Model
 }
 
 // Topic: one digest section
 type Topic struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+}
+
+func (c Config) judgeModel() string {
+	if c.JudgeModel != "" {
+		return c.JudgeModel
+	}
+	return c.Model
 }

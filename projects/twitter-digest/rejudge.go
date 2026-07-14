@@ -59,7 +59,7 @@ func ReplayJudge(ctx context.Context, store storage.Store, client ai.Client, pro
 			continue
 		}
 
-		report, usage, jerr := judgeDigest(ctx, client, cfg.Model, projectDir, cfg.Topics, a.Kept, a.Digest, a.Language)
+		report, usage, jerr := judgeDigest(ctx, client, cfg.judgeModel(), projectDir, cfg.Topics, a.Kept, a.Digest, a.Language)
 		total.InputTokens += usage.InputTokens
 		total.OutputTokens += usage.OutputTokens
 		if jerr != nil {
@@ -91,7 +91,7 @@ func ReplayJudge(ctx context.Context, store storage.Store, client ai.Client, pro
 	if judged > 0 {
 		if _, err := obs.LogRun(ctx, store, obs.Run{
 			Project:      "twitter-digest",
-			Model:        cfg.Model,
+			Model:        cfg.judgeModel(),
 			InputTokens:  total.InputTokens,
 			OutputTokens: total.OutputTokens,
 			ItemCount:    judged,

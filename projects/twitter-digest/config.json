@@ -14,6 +14,7 @@
     "listID": "2072471988908838939", 
     "provider": "anthropic",
     "model": "claude-haiku-4-5",
+    "judgeModel": "claude-sonnet-4-5",
     "maxPerAuthor": 3,
     "deliverTo": ["telegram", "console"],
     "emailFrom": "cheese@cheddars.uk"

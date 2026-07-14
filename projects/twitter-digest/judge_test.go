@@ -77,3 +77,12 @@ func TestJudgeReportsUsageEvenWhenUnparseable(t *testing.T) {
 		t.Errorf("tokens were spent and must be reported even on parse failure: %+v", usage)
 	}
 }
+
+func TestJudgeModelDefaultsToGeneratorModel(t *testing.T) {
+	if got := (Config{Model: "haiku"}).judgeModel(); got != "haiku" {
+		t.Errorf("judgeModel defaults to generator model: %q", got)
+	}
+	if got := (Config{JudgeModel: "sonnet"}).judgeModel(); got != "sonnet" {
+		t.Errorf("judgeModel uses judgeModel if set: %q", got)
+	}
+}

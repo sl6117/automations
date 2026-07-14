@@ -167,7 +167,7 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 			case jclient == nil:
 				// offline heuristic mode: no LLM, nothing real to judge
 			default:
-				report, jusage, jerr := judgeDigest(ctx, jclient, cfg.Model, runTime.ProjectDir, cfg.Topics, kept, message, lang)
+				report, jusage, jerr := judgeDigest(ctx, jclient, cfg.judgeModel(), runTime.ProjectDir, cfg.Topics, kept, message, lang)
 				total.InputTokens += jusage.InputTokens
 				total.OutputTokens += jusage.OutputTokens
 				if jerr != nil {
