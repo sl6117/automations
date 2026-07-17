@@ -51,15 +51,20 @@ func buildJudgePrompt(projectDir string, topics []Topic, kept []sources.Tweet, d
 	return out, nil
 }
 
-// extractJSON returns the outermost JSON object in text, tolerating the markdown fences
-// and stray commentary small models sometimes add despite being told not to.
+// extractJSON returns the first complete JSON object in text, tolerating markdown fences, leading commendary
+// and trailing junk small models sometimes add despite being told not to.
+// Decoding the first value beats brace-position heuristics:
+// trailing text containing '}' broke the old first-{-to-last-} extraction.
 func extractJSON(text string) (string, error) {
 	start := strings.Index(text, "{")
-	end := strings.LastIndex(text, "}")
-	if start == -1 || end <= start {
+	if start == -1 {
 		return "", fmt.Errorf("no JSON found")
 	}
-	return text[start : end+1], nil
+	var raw json.RawMessage
+	if err := json.NewDecoder(strings.NewReader(text[start:])).Decode(&raw); err != nil {
+		return "", fmt.Errorf("decode JSON: %w", err)
+	}
+	return string(raw), nil
 }
 
 // judgeDigest asks the model to grade a rendered digest against its source tweets

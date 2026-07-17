@@ -86,3 +86,30 @@ func TestJudgeModelDefaultsToGeneratorModel(t *testing.T) {
 		t.Errorf("judgeModel uses judgeModel if set: %q", got)
 	}
 }
+
+func TestExtractJSONToleratesFencesAndTrailingJunk(t *testing.T) {
+	want := `{"a":1}`
+	cases := map[string]string{
+		"bare":                     `{"a":1}`,
+		"fenced":                   "```json\n{\"a\":1}\n```",
+		"trailing backticks":       "{\"a\":1}\n```",
+		"trailing note with brace": "{\"a\":1}\nnote: unmatched } here",
+		"leading commentary":       "Here is my verdict:\n{\"a\":1}",
+	}
+	for name, in := range cases {
+		got, err := extractJSON(in)
+		if err != nil {
+			t.Errorf("%s: unexpected error: %v", name, err)
+			continue
+		}
+		if got != want {
+			t.Errorf("%s: got %q, want %q", name, got, want)
+		}
+	}
+	if _, err := extractJSON("no json at all"); err == nil {
+		t.Error("text without JSON must error, not return garbage")
+	}
+	if _, err := extractJSON(`{"a":1`); err == nil {
+		t.Error("truncated JSON must error")
+	}
+}
