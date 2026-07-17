@@ -44,3 +44,5 @@ Respond with ONLY a JSON object, no markdown fences, no commentary, exactly this
 {"faithfulness":{"reason":"","pass":true},"topicRouting":{"reason":"","pass":true},"coverage":{"reason":"","pass":true},"clarity":{"reason":"","pass":true}}
 
 Write "reason" BEFORE "pass": work through the evidence in the reason, then set pass to match the conclusion you reached. For failures, the reason must say what is wrong and where, in English, specific enough that a rewrite could fix it. If you examined a concern and it checked out, say so in the reason and pass - non-empty reason on a passing dimension is fine.
+
+Keep each reason under 80 words.

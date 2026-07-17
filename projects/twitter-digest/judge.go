@@ -14,7 +14,7 @@ import (
 
 const (
 	judgeTemperature = 0.0
-	judgeMaxTokens   = 500
+	judgeMaxTokens   = 1500
 )
 
 type Verdict struct {
