@@ -184,6 +184,18 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 					}
 				}
 			}
+			if judge != nil && cfg.ReviseBudget > 0 && jclient != nil {
+				finalDraft, finalReport, rusage := runReviseLoop(ctx, jclient, cfg, runTime.ProjectDir, kept, message, judge, lang, runTime.Log)
+				total.InputTokens += rusage.InputTokens
+				total.OutputTokens += rusage.OutputTokens
+				if finalDraft != message {
+					message = finalDraft
+					judge = finalReport
+					digests[lang] = message
+					failures, coverage = evalDigest(message, kept, cfg.Topics)
+					runTime.Log.Printf("[twitter-digest] revision adopted (%s); eval: %s", lang, coverage)
+				}
+			}
 
 			if err := saveArtifact(ctx, store, Artifact{
 				Model:        cfg.Model,
