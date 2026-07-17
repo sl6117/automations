@@ -572,3 +572,82 @@ func TestJudgeFailureNeverBlocksDelivery(t *testing.T) {
 		t.Errorf("want nil verdicts and a recorded judge error, got %+v / %q", a.Judge, a.JudgeError)
 	}
 }
+
+type loopClient struct {
+	verdicts    []string
+	judgeCalls  int
+	reviseCalls int
+}
+
+func (m *loopClient) Complete(ctx context.Context, req ai.Request) (ai.Response, error) {
+	switch {
+	case strings.Contains(req.Prompt, "quality evaluator"):
+		v := m.verdicts[m.judgeCalls]
+		m.judgeCalls++
+		return ai.Response{Text: v, Usage: ai.Usage{InputTokens: 5, OutputTokens: 5}}, nil
+	case strings.Contains(req.Prompt, "You are revising"):
+		m.reviseCalls++
+		return ai.Response{Text: "## AI\n- revised story", Usage: ai.Usage{InputTokens: 10, OutputTokens: 10}}, nil
+	default:
+		return ai.Response{Text: "## AI\n- original story", Usage: ai.Usage{InputTokens: 10, OutputTokens: 20}}, nil
+	}
+}
+
+func TestProjectRunDeliversAdoptedRevision(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("AUTOMATION_ROOT", root)
+	dir := filepath.Join(root, "projects", "twitter-digest")
+	if err := os.MkdirAll(filepath.Join(dir, "prompts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		"config.json":       `{"topics":[{"name":"AI"}],"source":"mock","model":"m","reviseBudget":1}`,
+		"subscribers.json":  `[{"name":"sang","sink":"console","topics":["AI"]}]`,
+		"prompts/digest.md": "write a digest in {{LANGUAGE}}\n{{TOPICS}}\n{{TWEETS_JSON}}",
+		"prompts/judge.md":  "quality evaluator {{LANGUAGE}}\n{{TOPICS}}\n{{TWEETS_JSON}}\n{{DIGEST}}",
+		"prompts/revise.md": "You are revising {{LANGUAGE}}\n{{TOPICS}}\n{{TWEETS_JSON}}\n{{DIGEST}}\n{{CRITIQUE}}",
+	}
+	for name, contents := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(contents), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fake := &loopClient{verdicts: []string{failFaithJSON, passAllJSON}}
+	sink := &fakeSink{}
+	store := &storage.FS{Root: root}
+	p := &project{
+		client: fake,
+		source: sources.Mock{},
+		store:  store,
+		jobs:   queue.NewMemory(),
+		sinkFor: func(sub Subscriber, cfg Config, rt *runner.Runtime) (sinks.Sink, error) {
+			return sink, nil
+		},
+	}
+	var buf bytes.Buffer
+	runTime := &runner.Runtime{DryRun: false, Log: log.New(&buf, "", 0), ProjectDir: dir}
+	if err := p.Run(context.Background(), runTime); err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+	if fake.judgeCalls != 2 || fake.reviseCalls != 1 {
+		t.Errorf("calls: judge=%d revise=%d, want 2 and 1 (judge, revise, re-judge)", fake.judgeCalls, fake.reviseCalls)
+	}
+	if len(sink.delivered) != 1 || !strings.Contains(sink.delivered[0], "revised story") {
+		t.Errorf("delivered = %#v, want the adopted revision", sink.delivered)
+	}
+	keys, err := store.List(context.Background(), "logs/runs/")
+	if err != nil || len(keys) != 1 {
+		t.Fatalf("artifact keys = %v (err %v), want exactly 1", keys, err)
+	}
+	data, err := store.Get(context.Background(), keys[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var a Artifact
+	if err := json.Unmarshal(data, &a); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(a.Digest, "revised story") || a.Judge == nil || !a.Judge.Faithfulness.Pass {
+		t.Errorf("artifact must record the adopted revision and its clean report; digest=%q judge=%+v", a.Digest, a.Judge)
+	}
+}
