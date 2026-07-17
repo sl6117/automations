@@ -293,3 +293,54 @@ func TestFetchSpendCapIsTypeQuotaError(t *testing.T) {
 		t.Fatalf("want ErrQuota, got %v", err)
 	}
 }
+
+func TestXAPIFetchUsesNoteTweetFullText(t *testing.T) {
+	var gotTweetFields string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotTweetFields = r.URL.Query().Get("tweet.fields")
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{
+			"data": [
+				{"id": "400", "text": "long analysis cut mid-sen",
+				 "note_tweet": {"text": "long analysis cut mid-sentence? not anymore: the note has the whole argument"},
+				 "author_id": "42",
+				 "public_metrics": {"like_count": 9, "retweet_count": 2}},
+				{"id": "401", "text": "RT @orig: the original long post gets c",
+				 "author_id": "42",
+				 "public_metrics": {"like_count": 5, "retweet_count": 1},
+				 "referenced_tweets": [{"type": "retweeted", "id": "399"}]}
+			],
+			"includes": {
+				"users": [
+					{"id": "42", "name": "Analyst", "username": "analyst"},
+					{"id": "77", "name": "Original", "username": "orig"}
+				],
+				"tweets": [
+					{"id": "399", "text": "the original long post gets capped too",
+					 "note_tweet": {"text": "the original long post gets capped too, unless we read its note_tweet as well"},
+					 "author_id": "77"}
+				]
+			}
+		}`)
+	}))
+	defer server.Close()
+
+	x := XAPI{BearerToken: "test-token", ListID: "12345", BaseURL: server.URL}
+	tweets, err := x.Fetch(context.Background())
+	if err != nil {
+		t.Fatalf("Fetch returned error: %v", err)
+	}
+	// regression guard: without note_tweet in tweet.fields the API omits the full text entirely
+	if gotTweetFields != "public_metrics,referenced_tweets,note_tweet" {
+		t.Errorf("tweet.fields = %q, want note_tweet requested", gotTweetFields)
+	}
+	if len(tweets) != 2 {
+		t.Fatalf("got %d tweets, want 2", len(tweets))
+	}
+	if want := "long analysis cut mid-sentence? not anymore: the note has the whole argument"; tweets[0].Text != want {
+		t.Errorf("data note_tweet: text = %q, want full note", tweets[0].Text)
+	}
+	if want := "RT @orig: the original long post gets capped too, unless we read its note_tweet as well"; tweets[1].Text != want {
+		t.Errorf("include note_tweet: text = %q, want RT wrapper with full note", tweets[1].Text)
+	}
+}

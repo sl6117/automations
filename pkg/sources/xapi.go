@@ -50,6 +50,9 @@ type xListTweetsResponse struct {
 			Type string `json:"type"`
 			ID   string `json:"id"`
 		} `json:"referenced_tweets"`
+		NoteTweet struct {
+			Text string `json:"text"`
+		} `json:"note_tweet"`
 	} `json:"data"`
 
 	Includes struct {
@@ -59,9 +62,12 @@ type xListTweetsResponse struct {
 			Username string `json:"username"`
 		} `json:"users"`
 		Tweets []struct {
-			ID       string `json:"id"`
-			Text     string `json:"text"`
-			AuthorID string `json:"author_id"`
+			ID        string `json:"id"`
+			Text      string `json:"text"`
+			AuthorID  string `json:"author_id"`
+			NoteTweet struct {
+				Text string `json:"text"`
+			} `json:"note_tweet"`
 		} `json:"tweets"`
 	} `json:"includes"`
 	Meta struct {
@@ -115,6 +121,15 @@ func truncate(s string, n int) string {
 	return s[:n]
 }
 
+// fullText prefers the note_tweet text the API sends for long (>280 char) posts;
+// the plain text field arries capped mid-sentene for those
+func fullText(text, note string) string {
+	if note != "" {
+		return note
+	}
+	return text
+}
+
 func idNewer(a, b string) bool {
 	na, errA := strconv.ParseUint(a, 10, 64)
 	nb, errB := strconv.ParseUint(b, 10, 64)
@@ -130,7 +145,7 @@ func (x XAPI) fetchPage(ctx context.Context, httpClient *http.Client, base, pagi
 
 	q := url.Values{}
 	q.Set("max_results", "50")
-	q.Set("tweet.fields", "public_metrics,referenced_tweets")
+	q.Set("tweet.fields", "public_metrics,referenced_tweets,note_tweet")
 	q.Set("expansions", "author_id,referenced_tweets.id,referenced_tweets.id.author_id")
 	q.Set("user.fields", "name,username")
 	if paginationToken != "" {
@@ -192,7 +207,7 @@ func (x XAPI) tweetsFromPage(parsed xListTweetsResponse) (tweets []Tweet, reache
 	refs := make(map[string]refTweet, len(parsed.Includes.Tweets))
 
 	for _, rt := range parsed.Includes.Tweets {
-		refs[rt.ID] = refTweet{text: rt.Text, authorID: rt.AuthorID}
+		refs[rt.ID] = refTweet{text: fullText(rt.Text, rt.NoteTweet.Text), authorID: rt.AuthorID}
 	}
 
 	for _, d := range parsed.Data {
@@ -202,7 +217,7 @@ func (x XAPI) tweetsFromPage(parsed xListTweetsResponse) (tweets []Tweet, reache
 		}
 		author := users[d.AuthorID]
 
-		text := d.Text
+		text := fullText(d.Text, d.NoteTweet.Text)
 		for _, ref := range d.ReferencedTweets {
 
 			original, ok := refs[ref.ID]
