@@ -28,6 +28,7 @@ Hard rules for grading:
 - Fail a dimension only for violations of the rules written above. Anything not covered
   by these rules is not a failure.
 - Your verdict must match your reason: if your reason concludes the digest is correct or defensible, the dimension passes.
+- To fail faithfulness, your reason must quote the exact source-tweet text and the exact digest text that disagree, side by side. If you cannot find a source quote that the digest contradicts, faithfulness passes. Never use knowledge from outside the source tweets to infer what an author "likely meant".
 - Each reason must describe only issues belonging to that dimension.
 
 ## Allowed topic sections
@@ -40,7 +41,6 @@ Hard rules for grading:
 {{DIGEST}}
 
 Respond with ONLY a JSON object, no markdown fences, no commentary, exactly this shape:
-{"faithfulness":{"pass":true,"reason":""},"topicRouting":{"pass":true,"reason":""},"coverage":{"pass":true,"reason":""},"clarity":{"pass":true,"reason":""}}
+{"faithfulness":{"reason":"","pass":true},"topicRouting":{"reason":"","pass":true},"coverage":{"reason":"","pass":true},"clarity":{"reason":"","pass":true}}
 
-For every dimension that fails, "reason" must briefly say what is wrong and where,
-in English, specific enough that a rewrite could fix it. Leave "reason" empty on pass.
+Write "reason" BEFORE "pass": work through the evidence in the reason, then set pass to match the conclusion you reached. For failures, the reason must say what is wrong and where, in English, specific enough that a rewrite could fix it. If you examined a concern and it checked out, say so in the reason and pass - non-empty reason on a passing dimension is fine.
