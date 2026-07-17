@@ -60,5 +60,15 @@ func TestEvalDigest(t *testing.T) {
 			t.Errorf("coverage = %q, want 1/2", coverage)
 		}
 	})
+	t.Run("semicolon-merged citations parse as separate urls", func(t *testing.T) {
+		digest := "## AI\n- merged story (@a, https://x.com/a/status/1; @b, https://x.com/b/status/2)"
+		failures, coverage := evalDigest(digest, kept, topics)
+		if len(failures) != 0 {
+			t.Errorf("failures = %v, want none (semicolon separates citations)", failures)
+		}
+		if !strings.HasPrefix(coverage, "2/2") {
+			t.Errorf("coverage = %q, want 2/2", coverage)
+		}
+	})
 
 }

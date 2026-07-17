@@ -11,7 +11,7 @@ import (
 // xURLPattern matches x.com satus links in rendered digest text
 // the character class stops at whitespace and punctuation the model may wrap a link in ")" or similar
 // Safe bc X usernames and status ids never contain those characters
-var xURLPattern = regexp.MustCompile(`https://x\.com/[^\s\])",.]+`)
+var xURLPattern = regexp.MustCompile(`https://x\.com/[^\s\])",.;]+`)
 
 func evalDigest(digest string, kept []sources.Tweet, topics []Topic) (failures []string, coverage string) {
 	keptURLs := make(map[string]bool, len(kept))
