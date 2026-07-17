@@ -12,7 +12,8 @@ type Config struct {
 	EmailFrom     string   `json:"emailFrom"`
 	EmailTo       []string `json:"emailTo"`
 	EmailSubject  string   `json:"emailSubject"`
-	JudgeModel    string   `json:"judgeModel"` // optional; empty = judge with Model
+	JudgeModel    string   `json:"judgeModel"`   // optional; empty = judge with Model
+	ReviseBudget  int      `json:"reviseBudget"` // max revision attempts per language when faithfulness fails; 0 = loop off
 }
 
 // Topic: one digest section
