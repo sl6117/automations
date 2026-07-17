@@ -28,7 +28,7 @@ mkdir -p logs
 {
     echo "===== digest run: $(date -u +%Y-%m-%dT%H:%M:%SZ) ====="
     ok=0
-    for attempt in 1 2 3; do
+    for attempt in 1 2 3 4 5 6; do
         if ./bin/auto run twitter-digest; then
             ok=1
             break
@@ -39,8 +39,8 @@ mkdir -p logs
                 break
             fi
         fi
-        echo "attempt $attempt failed; retrying in 60s..."
-        sleep 60
+        echo "attempt $attempt failed; retrying in 600s..."
+        sleep 600
     done
     [ "$ok" = "1" ]
     echo "===== end run ====="
