@@ -44,10 +44,10 @@ func TestReplayJudgeSkipsAlreadyJudgedUnlessForced(t *testing.T) {
 	if err := ReplayJudge(ctx, store, fake, ".", false, logger); err != nil {
 		t.Fatalf("replay: %v", err)
 	}
-	if fake.judgeCalls != 1 {
-		t.Errorf("judge calls = %d, want 1 (only the unjudged artifact)", fake.judgeCalls)
+	if fake.judgeCalls != 2 {
+		t.Errorf("judge calls = %d, want 2 (only the unjudged artifact)", fake.judgeCalls)
 	}
-	if !strings.Contains(buf.String(), "1 judged, 2 skipped") {
+	if !strings.Contains(buf.String(), "2 judged, 1 skipped") {
 		t.Errorf("summary missing from log: %s", buf.String())
 	}
 	data, err := store.Get(ctx, "logs/runs/2026-07-07T00-00-00Z-twitter-digest-english.json")
@@ -67,7 +67,7 @@ func TestReplayJudgeSkipsAlreadyJudgedUnlessForced(t *testing.T) {
 	if err := ReplayJudge(ctx, store, fake, ".", true, logger); err != nil {
 		t.Fatalf("replay force: %v", err)
 	}
-	if fake.judgeCalls != 4 {
-		t.Errorf("judge calls = %d, want 4 (1 from before + all 3 forced)", fake.judgeCalls)
+	if fake.judgeCalls != 5 {
+		t.Errorf("judge calls = %d, want 5 (2 from before + all 3 forced)", fake.judgeCalls)
 	}
 }

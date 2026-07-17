@@ -16,7 +16,7 @@ import (
 
 const artifactPrefix = "logs/runs/"
 
-// ReplayJudge runs the tier-2 judge over stored run artifacts that have no verdicts yet
+// ReplayJudge runs the tier-2 judge over stored run artifacts that have no verdicts yet, including whose previous judge attempt errored
 // (force re-judge all), writing reports back in place
 // a nil client is resolved from config/env, same as a live run
 func ReplayJudge(ctx context.Context, store storage.Store, client ai.Client, projectDir string, force bool, logger *log.Logger) error {
@@ -54,7 +54,7 @@ func ReplayJudge(ctx context.Context, store storage.Store, client ai.Client, pro
 		if err := json.Unmarshal(data, &a); err != nil {
 			return fmt.Errorf("unmarshalling artifact %s: %w", key, err)
 		}
-		if !force && (a.Judge != nil || a.JudgeError != "") {
+		if !force && a.Judge != nil {
 			skipped++
 			continue
 		}
