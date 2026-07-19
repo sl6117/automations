@@ -76,8 +76,25 @@ not as a separate track.
    high-precision gate material for step 7; judge PASSES are weak evidence, don't gate on
    them.)
 7. Generator -> evaluator revise loop using that judge (loop engineering)
+   (built 2026-07-17, shipped dark behind reviseBudget=0; enable after live runs show
+   no false-positive faithfulness fails. Follow-on idea, owner 2026-07-18: adaptive
+   revision prompts — critique history across attempts, escalate the reviser model on
+   attempt 2. Gated on first measuring the static loop under budget=1: adoption rate
+   and re-judge pass rate must justify the added machinery.)
 8. Weekly deep-dive project (orchestration + MCP + fan-out)
+   (absorbs owner idea 2026-07-18: verify stories beyond trusting the posting account.
+   Scoped as corroboration, not truth-verification — researcher agents fetch linked
+   articles/external sources to corroborate the story before the brief asserts it.)
 9. Lambda + EventBridge via CDK — "the thing that runs the worker," last, not first
+
+## Idea shelf (approved, unscheduled)
+
+- Single-source labeling (owner 2026-07-18, cheap slice of the corroboration idea):
+  a digest bullet citing exactly one account is structurally "single-source" — label
+  it in rendering/eval, no LLM needed. Small bite, any time.
+- Dead-letter requeue tooling (`auto queue ls` / `requeue`) — queue operations depth;
+  needs a careful fresh session, touches production queue data.
+- Ranking-budget filter; video/linked-media enrichment (post-roadmap).
 
 ## The portfolio story this produces
 
