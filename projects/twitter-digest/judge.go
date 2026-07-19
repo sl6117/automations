@@ -51,7 +51,7 @@ func buildJudgePrompt(projectDir string, topics []Topic, kept []sources.Tweet, d
 	return out, nil
 }
 
-// extractJSON returns the first complete JSON object in text, tolerating markdown fences, leading commendary
+// extractJSON returns the first complete JSON object in text, tolerating markdown fences, leading commentary
 // and trailing junk small models sometimes add despite being told not to.
 // Decoding the first value beats brace-position heuristics:
 // trailing text containing '}' broke the old first-{-to-last-} extraction.

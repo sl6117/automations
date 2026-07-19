@@ -99,7 +99,7 @@ func TestReviseLoopErrorKeepsOriginal(t *testing.T) {
 	}
 }
 
-func TestRevisePromptContainsGrountTruthDigestAndCritique(t *testing.T) {
+func TestRevisePromptContainsGroundTruthDigestAndCritique(t *testing.T) {
 	got, err := buildRevisePrompt(".", judgeTopics, judgeTweets, "## AI\n- the digest body", "faithfulness: wrong date on the Dario story", "Korean")
 
 	if err != nil {

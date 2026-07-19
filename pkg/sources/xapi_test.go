@@ -344,3 +344,39 @@ func TestXAPIFetchUsesNoteTweetFullText(t *testing.T) {
 		t.Errorf("include note_tweet: text = %q, want RT wrapper with full note", tweets[1].Text)
 	}
 }
+
+func TestXAPIFetchExpandsReplies(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{
+			"data": [
+				{"id": "300", "text": "Strong disagree with this take",
+				 "author_id": "42",
+				 "public_metrics": {"like_count": 500, "retweet_count": 30},
+				 "referenced_tweets": [{"type": "replied_to", "id": "299"}]}
+			],
+			"includes": {
+				"users": [
+					{"id": "42", "name": "Commenter", "username": "commenter"},
+					{"id": "77", "name": "Original Author", "username": "orig"}
+				],
+				"tweets": [
+					{"id": "299", "text": "the claim being replied to", "author_id": "77"}
+				]
+			}
+		}`)
+	}))
+	defer server.Close()
+	x := XAPI{BearerToken: "test-token", ListID: "12345", BaseURL: server.URL}
+	tweets, err := x.Fetch(context.Background())
+	if err != nil {
+		t.Fatalf("Fetch returned error: %v", err)
+	}
+	if len(tweets) != 1 {
+		t.Fatalf("got %d tweets, want 1", len(tweets))
+	}
+	want := "Strong disagree with this take\n[replying to @orig: the claim being replied to]"
+	if tweets[0].Text != want {
+		t.Errorf("reply text = %q, want %q", tweets[0].Text, want)
+	}
+}

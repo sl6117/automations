@@ -8,7 +8,7 @@ import (
 	"github.com/sl6117/automations/pkg/sources"
 )
 
-// xURLPattern matches x.com satus links in rendered digest text
+// xURLPattern matches x.com status links in rendered digest text
 // the character class stops at whitespace and punctuation the model may wrap a link in ")" or similar
 // Safe bc X usernames and status ids never contain those characters
 var xURLPattern = regexp.MustCompile(`https://x\.com/[^\s\])",.;]+`)

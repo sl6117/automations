@@ -57,7 +57,7 @@ func reviseDigest(ctx context.Context, client ai.Client, model, projectDir strin
 
 // runReviseLoop drives up to cfg.ReviseBudget revision passes when the judge failed faithfulness.
 // Each pass revises the latest candidate against the latest critique and re-judges it.
-// Returns the pair to ship: the first canddiate that re-judges clean on faithfulness, or the ORIGNIAL draft and report if no revision does.
+// Returns the pair to ship: the first candidate that re-judges clean on faithfulness, or the ORIGINAL draft and report if no revision does.
 // Never errors: any failure inside the loop means the original ships.
 func runReviseLoop(ctx context.Context, client ai.Client, cfg Config, projectDir string, kept []sources.Tweet, draft string, report *JudgeReport, language string, logger *log.Logger) (string, *JudgeReport, ai.Usage) {
 	var total ai.Usage

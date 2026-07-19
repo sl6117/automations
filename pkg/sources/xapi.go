@@ -122,7 +122,7 @@ func truncate(s string, n int) string {
 }
 
 // fullText prefers the note_tweet text the API sends for long (>280 char) posts;
-// the plain text field arries capped mid-sentene for those
+// the plain text field arrives capped mid-sentence for those
 func fullText(text, note string) string {
 	if note != "" {
 		return note
@@ -190,7 +190,7 @@ func (x XAPI) fetchPage(ctx context.Context, httpClient *http.Client, base, pagi
 	return parsed, nil
 }
 
-// tweetsFromPAge converts one API page to Tweets. reachedCursor reports whether the page contained any tweet at/below the sinceID
+// tweetsFromPage converts one API page to Tweets. reachedCursor reports whether the page contained any tweet at/below the sinceID
 // pages are newest-first, so once true, every following page is already seen
 func (x XAPI) tweetsFromPage(parsed xListTweetsResponse) (tweets []Tweet, reachedCursor bool) {
 

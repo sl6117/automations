@@ -31,7 +31,7 @@ type Job struct {
 	CreatedAt  time.Time
 }
 
-// Queue is the contract every backend satisfies. Th ename parameter
+// Queue is the contract every backend satisfies. The name parameter
 // namespaces jobs per project (e.g. "twitter-digest")
 type Queue interface {
 	// Enqueue creates a job in pending state. If a job with the same ID
