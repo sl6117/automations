@@ -65,9 +65,10 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 		return err
 	}
 
+	var sourceReads int
 	source := p.source
 	if source == nil {
-		selected, err := selectSource(cfg, state.SinceID)
+		selected, err := selectSource(cfg, state.SinceID, &sourceReads)
 		if err != nil {
 			return err
 		}
@@ -93,6 +94,15 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 
 	if len(kept) == 0 {
 		runTime.Log.Println("[twitter-digest] no tweets to digest - skipping send")
+
+		if _, err := obs.LogRun(context.Background(), store, obs.Run{
+			Project:     p.Name(),
+			Model:       cfg.Model,
+			DryRun:      runTime.DryRun,
+			SourceReads: sourceReads,
+		}); err != nil {
+			return fmt.Errorf("log run: %w", err)
+		}
 
 		if runTime.DryRun {
 			return nil
@@ -221,6 +231,7 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 		InputTokens:  total.InputTokens,
 		OutputTokens: total.OutputTokens,
 		ItemCount:    len(kept),
+		SourceReads:  sourceReads,
 	}); err != nil {
 		return fmt.Errorf("log run: %w", err)
 	}
@@ -414,7 +425,7 @@ func (p *project) resolveClient(cfg Config) (ai.Client, error) {
 	return selectClient(cfg)
 }
 
-func selectSource(cfg Config, sinceID string) (sources.Source, error) {
+func selectSource(cfg Config, sinceID string, reads *int) (sources.Source, error) {
 	switch cfg.Source {
 	case "", "mock":
 		return sources.Mock{}, nil
@@ -430,7 +441,7 @@ func selectSource(cfg Config, sinceID string) (sources.Source, error) {
 		if listID == "" {
 			return nil, fmt.Errorf("source %q needs a list id (config.json listId or X_LIST_ID)", cfg.Source)
 		}
-		return sources.XAPI{BearerToken: token, ListID: listID, SinceID: sinceID}, nil
+		return sources.XAPI{BearerToken: token, ListID: listID, SinceID: sinceID, Reads: reads}, nil
 	default:
 		return nil, fmt.Errorf("unknown source: %q", cfg.Source)
 	}
