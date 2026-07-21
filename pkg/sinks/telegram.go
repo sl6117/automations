@@ -128,7 +128,7 @@ func truncate(s string, n int) string {
 	return s[:n]
 }
 
-// redact stripts the bot token from a string
+// redact strips the bot token from a string
 func (t Telegram) redact(s string) string {
 	if t.BotToken == "" {
 		return s

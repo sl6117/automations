@@ -16,8 +16,8 @@ import (
 )
 
 // Dynamo stores jobs as items in the shared automations table:
-// pk queue#name, sk = jobId. Claim/Complete/Fial are UpdateItems
-// whos conditionExpressions enforce the same guards Memory enforces
+// pk queue#name, sk = jobId. Claim/Complete/Fail are UpdateItems
+// whose conditionExpressions enforce the same guards Memory enforces
 // under its mutex - DDB evaluates the condition and the write atomically, so racing workers cannot both win
 type Dynamo struct {
 	client *dynamodb.Client
@@ -25,7 +25,7 @@ type Dynamo struct {
 }
 
 // NewDynamo reads AWS credentials/region from the environment and targets
-// th table named by DYNAMO_TABLE (default "automations")
+// the table named by DYNAMO_TABLE (default "automations")
 func NewDynamo(ctx context.Context) (*Dynamo, error) {
 	cfg, err := awsconfig.LoadDefaultConfig(ctx)
 	if err != nil {

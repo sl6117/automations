@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// Status ist the job lifecycle: pending -> delivered on success, or pending -> failed
+// Status is the job lifecycle: pending -> delivered on success, or pending -> failed
 // once the caller gives up
 type Status string
 
