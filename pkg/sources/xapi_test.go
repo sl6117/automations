@@ -259,6 +259,34 @@ func TestXAPIFetchPaginatesUntilCursor(t *testing.T) {
 	}
 }
 
+func TestXAPIFetchCountsReads(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("pagination_token") == "" {
+			io.WriteString(w, `{
+				"data": [{"id": "500", "text": "newest", "author_id": "42", "public_metrics": {"like_count": 1, "retweet_count": 0}}],
+				"includes": {"users": [{"id": "42", "name": "Author", "username": "author"}]},
+				"meta": {"next_token": "page2"}
+			}`)
+			return
+		}
+		io.WriteString(w, `{
+			"data": [{"id": "200", "text": "the cursor itself", "author_id": "42", "public_metrics": {"like_count": 1, "retweet_count": 0}}],
+			"includes": {"users": [{"id": "42", "name": "Author", "username": "author"}]}
+		}`)
+	}))
+	defer server.Close()
+	var reads int
+	x := XAPI{BearerToken: "test-token", ListID: "12345", BaseURL: server.URL, SinceID: "200", Reads: &reads}
+	if _, err := x.Fetch(context.Background()); err != nil {
+		t.Fatalf("Fetch returned error: %v", err)
+	}
+	// 2 pages fetched, 50 billed reads each
+	if reads != 100 {
+		t.Errorf("reads = %d, want 100", reads)
+	}
+}
+
 func TestXAPIFetchFirstRunFetchesOnePage(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

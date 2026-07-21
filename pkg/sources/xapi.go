@@ -29,6 +29,7 @@ type XAPI struct {
 	ListID      string
 	SinceID     string // client-side cursor: drop tweets at/below this id (endpoint has no since_id param)
 	MaxPages    int
+	Reads       *int         // optional billed-read counter: +50 per fetched page (nil = don't count)
 	BaseURL     string       // defaults to defaultXAPIBaseURL
 	HTTPClient  *http.Client // defaults to a client with sane timeout
 }
@@ -100,6 +101,9 @@ func (x XAPI) Fetch(ctx context.Context) ([]Tweet, error) {
 		parsed, err := x.fetchPage(ctx, httpClient, base, nextToken)
 		if err != nil {
 			return nil, err
+		}
+		if x.Reads != nil {
+			*x.Reads += 50
 		}
 
 		pageTweets, reachedCursor := x.tweetsFromPage(parsed)
