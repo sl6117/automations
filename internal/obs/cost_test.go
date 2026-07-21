@@ -27,6 +27,7 @@ func TestLogRunAppends(t *testing.T) {
 		Model:       "anthropic/claude-haiku-4.5",
 		InputTokens: 1_000_000,
 		ItemCount:   4,
+		SourceReads: 150,
 	}); err != nil {
 		t.Fatalf("LogRun failed: %v", err)
 	}
@@ -51,5 +52,32 @@ func TestLogRunAppends(t *testing.T) {
 	}
 	if rec.CostUSD != 1.0 {
 		t.Errorf("cost = %v, want 1.0", rec.CostUSD)
+	}
+
+	if rec.SourceReads != 150 {
+		t.Errorf("sourceReads = %d, want 150", rec.SourceReads)
+	}
+}
+
+func TestLogRunDryRunKeepsSourceReads(t *testing.T) {
+	ctx := context.Background()
+	store := &storage.FS{Root: t.TempDir()}
+
+	rec, err := LogRun(ctx, store, Run{
+		Project:     "twitter-digest",
+		Model:       "claude-haiku-4-5",
+		DryRun:      true,
+		InputTokens: 1_000_000,
+		SourceReads: 100,
+	})
+	if err != nil {
+		t.Fatalf("LogRun failed: %v", err)
+	}
+	// dry run zeroes LLM cost (no model was called) but X reads are real spend
+	if rec.CostUSD != 0 {
+		t.Errorf("dry-run cost = %v, want 0", rec.CostUSD)
+	}
+	if rec.SourceReads != 100 {
+		t.Errorf("dry-run sourceReads = %d, want 100", rec.SourceReads)
 	}
 }

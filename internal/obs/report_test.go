@@ -20,6 +20,7 @@ func TestReport(t *testing.T) {
 		InputTokens:  1_000_000,
 		OutputTokens: 1_000_000,
 		ItemCount:    4,
+		SourceReads:  150,
 	}); err != nil {
 		t.Fatalf("LongRun: %v", err)
 	}
@@ -35,5 +36,8 @@ func TestReport(t *testing.T) {
 	}
 	if !strings.Contains(out, "claude-haiku-4-5") {
 		t.Errorf("last real run missing:\n%s", out)
+	}
+	if !strings.Contains(out, "X reads: 150") {
+		t.Errorf("reads total missing:\n%s", out)
 	}
 }

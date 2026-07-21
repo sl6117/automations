@@ -49,6 +49,7 @@ func LoadRuns(ctx context.Context, store storage.Store) ([]Run, error) {
 type monthAgg struct {
 	runs   int
 	tokens int
+	reads  int
 	cost   float64
 }
 
@@ -65,6 +66,7 @@ func Report(ctx context.Context, store storage.Store, w io.Writer) error {
 
 	byMonth := map[string]*monthAgg{}
 	var totalCost float64
+	var totalReads int
 	var totalTokens int
 	var lastReal *Run
 
@@ -83,9 +85,11 @@ func Report(ctx context.Context, store storage.Store, w io.Writer) error {
 		}
 		agg.runs++
 		agg.tokens += tokens
+		agg.reads += r.SourceReads
 		agg.cost += r.CostUSD
 		totalCost += r.CostUSD
 		totalTokens += tokens
+		totalReads += r.SourceReads
 
 		if !r.DryRun {
 			rr := r
@@ -95,7 +99,7 @@ func Report(ctx context.Context, store storage.Store, w io.Writer) error {
 
 	fmt.Fprintln(w, "LLM Cost Report")
 	fmt.Fprintln(w, "================")
-	fmt.Fprintf(w, "Runs: %d   Tokens: %d   Cost: $%.4f\n\n", len(runs), totalTokens, totalCost)
+	fmt.Fprintf(w, "Runs: %d   Tokens: %d   X reads: %d   Cost: $%.4f\n\n", len(runs), totalTokens, totalReads, totalCost)
 	fmt.Fprintln(w, "By month:")
 
 	months := make([]string, 0, len(byMonth))
@@ -105,7 +109,7 @@ func Report(ctx context.Context, store storage.Store, w io.Writer) error {
 	sort.Strings(months)
 	for _, m := range months {
 		agg := byMonth[m]
-		fmt.Fprintf(w, "  %s: %d runs, %d tokens, $%.4f\n", m, agg.runs, agg.tokens, agg.cost)
+		fmt.Fprintf(w, "  %s: %d runs, %d tokens, %d reads, $%.4f\n", m, agg.runs, agg.tokens, agg.reads, agg.cost)
 	}
 
 	if lastReal != nil {
