@@ -26,3 +26,4 @@ bin/
 # Subscriber list (names, delivery adddresses) - personnal data, local only
 **/subscribers.json
 
+.cursor/mcp.json

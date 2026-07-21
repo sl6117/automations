@@ -84,7 +84,10 @@ not as a separate track.
 8. Weekly deep-dive project (orchestration + MCP + fan-out)
    (absorbs owner idea 2026-07-18: verify stories beyond trusting the posting account.
    Scoped as corroboration, not truth-verification — researcher agents fetch linked
-   articles/external sources to corroborate the story before the brief asserts it.)
+   articles/external sources to corroborate the story before the brief asserts it.
+   Design agreed 2026-07-20 — see `2026-07-20-step8-weekly-deepdive-design.md`:
+   own MCP server over the digest archive + orchestrator-as-host; hedge-don't-drop;
+   gates verify contract compliance, not truth.)
 9. Lambda + EventBridge via CDK — "the thing that runs the worker," last, not first
 
 ## Idea shelf (approved, unscheduled)
