@@ -21,7 +21,7 @@ func costLogPath() string {
 
 // LoadRuns reads every logged run. A missing log isn't an error (returns nil)
 func LoadRuns(ctx context.Context, store storage.Store) ([]Run, error) {
-	data, err := store.Get(ctx, costLogKey)
+	data, err := store.Get(ctx, CostLogKey)
 	if errors.Is(err, storage.ErrNotExist) {
 		return nil, nil
 	}

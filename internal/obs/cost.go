@@ -23,7 +23,9 @@ var Prices = map[string]struct{ In, Out float64 }{
 	"claude-haiku-4-5": {In: 1.0, Out: 5.0},
 }
 
-const costLogKey = "logs/cost-log.jsonl"
+// the storage key of the append-only run log; exported so
+// read-side consumers (auto cost, digest-mcp) share one definition.
+const CostLogKey = "logs/cost-log.jsonl"
 
 // EstimateCost returns the USD cost for a model's token usage, or 0 if the model isn't in the price table.
 func EstimateCost(model string, inputTokens, outputTokens int) float64 {
@@ -36,6 +38,8 @@ func EstimateCost(model string, inputTokens, outputTokens int) float64 {
 }
 
 // Run is one logged automation run. Timestamp and CostUSD are filled by LogRun
+// SourceReads counts billed X API reads (pages x 50); unlike CostUSD it is real
+// spend even on dry runs, so it is never zeroed.
 type Run struct {
 	Timestamp    string  `json:"ts"`
 	Project      string  `json:"project"`
@@ -67,19 +71,12 @@ func LogRun(ctx context.Context, store storage.Store, run Run) (Run, error) {
 		run.CostUSD = EstimateCost(run.Model, run.InputTokens, run.OutputTokens)
 	}
 
-	// dry run -> no cost
-	if run.DryRun {
-		run.CostUSD = 0
-	} else {
-		run.CostUSD = EstimateCost(run.Model, run.InputTokens, run.OutputTokens)
-	}
-
 	line, err := json.Marshal(run)
 	if err != nil {
 		return Run{}, fmt.Errorf("marshal run: %w", err)
 	}
 
-	if err := store.Append(ctx, costLogKey, line); err != nil {
+	if err := store.Append(ctx, CostLogKey, line); err != nil {
 		return Run{}, fmt.Errorf("append to cost log: %w", err)
 	}
 	return run, nil

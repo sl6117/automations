@@ -32,7 +32,7 @@ func TestLogRunAppends(t *testing.T) {
 		t.Fatalf("LogRun failed: %v", err)
 	}
 
-	data, err := store.Get(ctx, costLogKey)
+	data, err := store.Get(ctx, CostLogKey)
 	if err != nil {
 		t.Fatalf("read log: %v", err)
 	}
