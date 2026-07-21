@@ -15,7 +15,7 @@
     "provider": "anthropic",
     "model": "claude-haiku-4-5",
     "judgeModel": "claude-sonnet-4-5",
-    "reviseBudget": 0,
+    "reviseBudget": 1,
     "maxPerAuthor": 3,
     "deliverTo": ["telegram", "console"],
     "emailFrom": "cheese@cheddars.uk"
