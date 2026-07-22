@@ -33,7 +33,7 @@ type Config struct {
 }
 
 // Result always carries usable text; Truncated marks answers the budget cut short
-// so callers can hedge rather than trust them aas complete.
+// so callers can hedge rather than trust them as complete.
 type Result struct {
 	Text      string
 	Truncated bool
@@ -86,7 +86,7 @@ func Run(ctx context.Context, cfg Config, prompt string) (Result, error) {
 
 		var results []ai.ContentBlock
 		for _, b := range resp.Content {
-			if b.Type == "tool_use" {
+			if b.Type != "tool_use" {
 				continue
 			}
 			out, isErr, err := cfg.Tools.Call(ctx, b.Name, b.Input)
@@ -99,7 +99,7 @@ func Run(ctx context.Context, cfg Config, prompt string) (Result, error) {
 	}
 }
 
-// finalAnswer is the escape hatch: answer the pending tool_use blocks with budge-exhausted refusals,
+// finalAnswer is the escape hatch: answer the pending tool_use blocks with budget-exhausted refusals,
 // then ask the model to answer from what it has,
 // offering NO tools so it cannot ask again.
 func finalAnswer(ctx context.Context, cfg Config, messages []ai.Message, pending []ai.ContentBlock, res Result) (Result, error) {
