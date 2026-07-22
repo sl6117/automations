@@ -21,6 +21,7 @@ import (
 	"github.com/sl6117/automations/internal/storage"
 	_ "github.com/sl6117/automations/projects/hello"
 	_ "github.com/sl6117/automations/projects/twitter-digest"
+	_ "github.com/sl6117/automations/projects/weekly-deepdive"
 )
 
 func main() {
