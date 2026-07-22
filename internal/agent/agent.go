@@ -30,6 +30,9 @@ type Config struct {
 	// MaxToolTurns bounds how many times the model may request tools before
 	// the loop forces a final answer from what was gathered (the escape hatch).
 	MaxToolTurns int
+	// OnToolCall, if set, is invoked after each tool Call with the raw args and outcome.
+	// Intended for stderr/observability; must not mutate the loop.
+	OnToolCall func(name string, args json.RawMessage, result string, isError bool)
 }
 
 // Result always carries usable text; Truncated marks answers the budget cut short
@@ -92,6 +95,9 @@ func Run(ctx context.Context, cfg Config, prompt string) (Result, error) {
 			out, isErr, err := cfg.Tools.Call(ctx, b.Name, b.Input)
 			if err != nil {
 				return Result{}, fmt.Errorf("call %s: %w", b.Name, err)
+			}
+			if cfg.OnToolCall != nil {
+				cfg.OnToolCall(b.Name, b.Input, out, isErr)
 			}
 			results = append(results, ai.ContentBlock{Type: "tool_result", ToolUseID: b.ID, Content: out, IsError: isErr})
 		}

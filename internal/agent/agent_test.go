@@ -104,3 +104,29 @@ func TestRunBudgetExhaustionTruncatesWithLabel(t *testing.T) {
 		t.Errorf("pending tu_2 = %+v, want a budget-exhausted error tool_result", last.Content[0])
 	}
 }
+
+func TestRunInvokesOnToolCall(t *testing.T) {
+	chat := &fakeChat{responses: []ai.ChatResponse{
+		toolUseResp("tu_1", "list_runs", `{"since":"2026-07-01"}`),
+		textResp("ok"),
+	}}
+	tools := &fakeTools{result: `{"keys":["a"]}`}
+	var gotName string
+	var gotArgs, gotResult string
+	var gotErr bool
+	res, err := Run(context.Background(), Config{
+		Client: chat, Tools: tools, Model: "m", MaxTokens: 100, MaxToolTurns: 3,
+		OnToolCall: func(name string, args json.RawMessage, result string, isError bool) {
+			gotName, gotArgs, gotResult, gotErr = name, string(args), result, isError
+		},
+	}, "which runs?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Text != "ok" {
+		t.Fatalf("text = %q", res.Text)
+	}
+	if gotName != "list_runs" || gotArgs != `{"since":"2026-07-01"}` || gotResult != `{"keys":["a"]}` || gotErr {
+		t.Errorf("OnToolCall got name=%q args=%q result=%q isError=%v", gotName, gotArgs, gotResult, gotErr)
+	}
+}

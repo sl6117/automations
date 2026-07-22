@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -34,6 +35,9 @@ func main() {
 		System:       "You answer questions about the twitter-digest automation's run archive using the available tools. Be concise; cite artifact keys or months when relevant.",
 		MaxTokens:    1000,
 		MaxToolTurns: 5,
+		OnToolCall: func(name string, args json.RawMessage, result string, isError bool) {
+			log.Printf("tool %s args=%s result_bytes=%d isError=%v", name, string(args), len(result), isError)
+		},
 	}, os.Args[1])
 	if err != nil {
 		log.Fatal(err)
