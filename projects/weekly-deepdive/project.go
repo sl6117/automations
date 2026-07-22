@@ -15,37 +15,67 @@ import (
 	"github.com/sl6117/automations/internal/runner"
 )
 
+const (
+	plannerModel         = "claude-haiku-4-5"
+	researcherModel      = "claude-haiku-4-5"
+	roleMaxTokens        = 1000
+	roleMaxToolTurns     = 5
+	maxResearchQuestions = 3 // cost guard for early dry-run
+)
+
 func init() {
 	runner.Register(&project{})
 }
 
-type project struct{}
+type project struct {
+	// nil -> real deps from env / bin/digest-mcp. Tests inject fakes.
+	chat  ai.ChatClient
+	tools agent.ToolSource
+	now   func() time.Time
+}
 
 func (p *project) Name() string { return "weekly-deepdive" }
 
 func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
-	system, err := os.ReadFile(filepath.Join(rt.ProjectDir, "prompts", "planner.md"))
+
+	plannerSys, err := os.ReadFile(filepath.Join(rt.ProjectDir, "prompts", "planner.md"))
 	if err != nil {
 		return fmt.Errorf("read planner prompt: %w", err)
 	}
-	client := mcp.NewClient(&mcp.Implementation{Name: "weekly-deepdive", Version: "v0.1.0"}, nil)
-	session, err := client.Connect(ctx, &mcp.CommandTransport{Command: exec.Command("bin/digest-mcp")}, nil)
+	researcherSys, err := os.ReadFile(filepath.Join(rt.ProjectDir, "prompts", "researcher.md"))
 	if err != nil {
-		return fmt.Errorf("connect digest-mcp: %w", err)
+		return fmt.Errorf("read researcher prompt: %w", err)
 	}
-	defer session.Close()
+
+	chat := p.chat
+	if chat == nil {
+		chat = ai.Anthropic{APIKey: os.Getenv("ANTHROPIC_API_KEY")}
+	}
+
+	tools := p.tools
+	if tools == nil {
+		client := mcp.NewClient(&mcp.Implementation{Name: "weekly-deepdive", Version: "v0.1.0"}, nil)
+		session, err := client.Connect(ctx, &mcp.CommandTransport{Command: exec.Command("bin/digest-mcp")}, nil)
+		if err != nil {
+			return fmt.Errorf("connect digest-mcp: %w", err)
+		}
+		defer session.Close()
+		tools = agent.MCPTools{Session: session}
+	}
+	now := time.Now
+	if p.now != nil {
+		now = p.now
+	}
+
+	onTool := func(name string, args json.RawMessage, result string, isError bool) {
+		rt.Log.Printf("tool %s args=%s result_bytes=%d isError=%v", name, string(args), len(result), isError)
+	}
 
 	plan, res, err := planWeek(ctx, agent.Config{
-		Client:       ai.Anthropic{APIKey: os.Getenv("ANTHROPIC_API_KEY")},
-		Tools:        agent.MCPTools{Session: session},
-		Model:        "claude-haiku-4-5",
-		System:       string(system),
-		MaxTokens:    1000,
-		MaxToolTurns: 5,
-		OnToolCall: func(name string, args json.RawMessage, result string, isError bool) {
-			rt.Log.Printf("tool %s args=%s result_bytes=%d isError=%v", name, string(args), len(result), isError)
-		},
-	}, time.Now())
+		Client: chat, Tools: tools, Model: plannerModel,
+		System: string(plannerSys), MaxTokens: roleMaxTokens, MaxToolTurns: roleMaxToolTurns,
+		OnToolCall: onTool,
+	}, now())
 
 	if err != nil {
 		return err
@@ -60,8 +90,41 @@ func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
 	}
 	rt.Log.Printf("plan:\n%s", out)
 	rt.Log.Printf("(%d tool turns, %d in / %d out tokens)", res.ToolTurns, res.Usage.InputTokens, res.Usage.OutputTokens)
+
+	questions := plan.ResearchQuestions
+	if len(questions) > maxResearchQuestions {
+		rt.Log.Printf("research: capping %d questions to %d (cost guard)", len(questions), maxResearchQuestions)
+		questions = questions[:maxResearchQuestions]
+	}
+
+	var reports []ResearchReport
+
+	for i, q := range questions {
+		rt.Log.Printf("research %d/%d: %s", i+1, len(questions), q)
+		report, rres, err := researchOne(ctx, agent.Config{
+			Client: chat, Tools: tools, Model: researcherModel,
+			System: string(researcherSys), MaxTokens: roleMaxTokens, MaxToolTurns: roleMaxToolTurns,
+			OnToolCall: onTool,
+		}, plan.Story, q)
+		if err != nil {
+			return fmt.Errorf("research %q: %w", q, err)
+		}
+		if rres.Truncated {
+			rt.Log.Printf("research %d truncated (budget); accepting parsed report if any", i+1)
+		}
+		reports = append(reports, report)
+		rt.Log.Printf("research %d: corroborated=%v findings=%d sources=%d (%d turns, %d in / %d out)",
+			i+1, report.Corroborated, len(report.Findings), len(report.Sources),
+			rres.ToolTurns, rres.Usage.InputTokens, rres.Usage.OutputTokens)
+	}
+
+	reportOut, err := json.MarshalIndent(reports, "", " ")
+	if err != nil {
+		return err
+	}
+	rt.Log.Printf("reports:\n%s", reportOut)
 	if !rt.DryRun {
-		rt.Log.Println("delivery not wired yet; plan only")
+		rt.Log.Println("delivery not wired yet; plan+research only")
 	}
 	return nil
 }

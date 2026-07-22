@@ -22,7 +22,7 @@ import (
 const (
 	artifactPrefix = "logs/runs/"
 	fetchTimeout   = 10 * time.Second
-	fetchSizeCap   = 100_000 // bytes; enough for an article, not a dump
+	fetchSizeCap   = 20_000 // bytes; enough for an article, not a dump
 	fetchUserAgent = "digest-mcp/0.4"
 )
 
