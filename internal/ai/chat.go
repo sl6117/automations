@@ -51,6 +51,7 @@ type ChatRequest struct {
 // caller must execute the tool_use blocks and continue the conversation.
 type ChatResponse struct {
 	StopReason string
+	Text       string
 	Content    []ContentBlock
 	Model      string
 	Usage      Usage
@@ -166,6 +167,13 @@ func (a Anthropic) Chat(ctx context.Context, req ChatRequest) (ChatResponse, err
 	}
 	for _, b := range parsed.Content {
 		out.Content = append(out.Content, ContentBlock(b))
+
+		if b.Type == "text" {
+			if out.Text != "" {
+				out.Text += "\n"
+			}
+			out.Text += b.Text
+		}
 	}
 	return out, nil
 }

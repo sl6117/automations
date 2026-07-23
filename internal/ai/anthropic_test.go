@@ -121,4 +121,7 @@ func TestAnthropicChat(t *testing.T) {
 	if len(gotBody.Messages) != 1 || len(gotBody.Messages[0].Content) != 1 || gotBody.Messages[0].Content[0].Text != "which runs happened this week?" {
 		t.Errorf("wire messages = %+v, want the user turn as a text block", gotBody.Messages)
 	}
+	if resp.Text != "let me check" {
+		t.Errorf("Text = %q, want concatenated text blocks", resp.Text)
+	}
 }

@@ -18,8 +18,10 @@ import (
 const (
 	plannerModel         = "claude-haiku-4-5"
 	researcherModel      = "claude-haiku-4-5"
+	synthesizerModel     = "claude-haiku-4-5"
 	roleMaxTokens        = 1000
 	roleMaxToolTurns     = 5
+	synthesizerMaxTokens = 2500
 	maxResearchQuestions = 3 // cost guard for early dry-run
 )
 
@@ -45,6 +47,10 @@ func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
 	researcherSys, err := os.ReadFile(filepath.Join(rt.ProjectDir, "prompts", "researcher.md"))
 	if err != nil {
 		return fmt.Errorf("read researcher prompt: %w", err)
+	}
+	synthesizerSys, err := os.ReadFile(filepath.Join(rt.ProjectDir, "prompts", "synthesizer.md"))
+	if err != nil {
+		return fmt.Errorf("read synthesizer prompt: %w", err)
 	}
 
 	chat := p.chat
@@ -123,6 +129,18 @@ func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
 		return err
 	}
 	rt.Log.Printf("reports:\n%s", reportOut)
+
+	brief, usage, err := synthesize(ctx, chat, synthesizerModel, string(synthesizerSys), plan, reports)
+	if err != nil {
+		return err
+	}
+	briefOut, err := json.MarshalIndent(brief, "", " ")
+	if err != nil {
+		return err
+	}
+	rt.Log.Printf("brief:\n%s", briefOut)
+	rt.Log.Printf("synthesizer: %d in / %d out tokens", usage.InputTokens, usage.OutputTokens)
+
 	if !rt.DryRun {
 		rt.Log.Println("delivery not wired yet; plan+research only")
 	}
