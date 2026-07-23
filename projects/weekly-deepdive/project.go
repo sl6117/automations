@@ -117,6 +117,12 @@ func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
 	}
 
 	var reports []ResearchReport
+	seeds, err := seedTweets(ctx, tools, plan.SourceTweetIDs, now().AddDate(0, 0, -7))
+	if err != nil {
+		return fmt.Errorf("seed tweets: %w", err)
+	}
+	rt.Log.Printf("seeded %d/%d source tweets", len(seeds), len(plan.SourceTweetIDs))
+	seedBlock := renderSeeds(seeds)
 
 	for i, q := range questions {
 		rt.Log.Printf("research %d/%d: %s", i+1, len(questions), q)
@@ -124,7 +130,7 @@ func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
 			Client: chat, Tools: tools, Model: researcherModel,
 			System: string(researcherSys), MaxTokens: roleMaxTokens, MaxToolTurns: roleMaxToolTurns,
 			OnToolCall: onTool,
-		}, plan.Story, q)
+		}, plan.Story, q, seedBlock)
 		if err != nil {
 			return fmt.Errorf("research %q: %w", q, err)
 		}

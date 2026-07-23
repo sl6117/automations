@@ -18,10 +18,10 @@ type ResearchReport struct {
 	Corroborated bool     `json:"corroborated"`
 }
 
-func researchOne(ctx context.Context, cfg agent.Config, story, question string) (ResearchReport, agent.Result, error) {
+func researchOne(ctx context.Context, cfg agent.Config, story, question, seeds string) (ResearchReport, agent.Result, error) {
 	prompt := fmt.Sprintf(
-		"Story under investigation:\n%s\n\nResearch question:\n%s\n\nUse fetch_url (and archive tools if needed). Reply with ONLY a JSON object matching the schema in the system prompt. If you cannot verify, set corroborated=false — that is a valid answer.",
-		story, question,
+		"Story under investigation:\n%s\n\n%sResearch question:\n%s\n\nStart from the links embedded in the source tweets (fetch_url follows redirects, so t.co links work). Do NOT invent or guess URLs: no search-engine pages, no made-up article slugs. If a seed link fails or is paywalled, you may try the same URL via web.archive.org, then stop. Reply with ONLY a JSON object matching the schema in the system prompt. If you cannot verify, set corroborated=false — that is a valid answer.",
+		story, seeds, question,
 	)
 	res, err := agent.Run(ctx, cfg, prompt)
 	if err != nil {
