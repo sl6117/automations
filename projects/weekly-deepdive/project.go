@@ -12,6 +12,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sl6117/automations/internal/agent"
 	"github.com/sl6117/automations/internal/ai"
+	"github.com/sl6117/automations/internal/config"
 	"github.com/sl6117/automations/internal/runner"
 	"github.com/sl6117/automations/pkg/sinks"
 )
@@ -35,12 +36,17 @@ type project struct {
 	chat  ai.ChatClient
 	tools agent.ToolSource
 	now   func() time.Time
-	sinks []sinks.Sink // nil -> console only (Telegram waits on config.json)
+	sinks []sinks.Sink // nil -> selectSinks from config (dry-run: console only)
 }
 
 func (p *project) Name() string { return "weekly-deepdive" }
 
 func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
+
+	var cfg Config
+	if err := config.Load(filepath.Join(rt.ProjectDir, "config.json"), &cfg); err != nil {
+		return err
+	}
 
 	plannerSys, err := os.ReadFile(filepath.Join(rt.ProjectDir, "prompts", "planner.md"))
 	if err != nil {
@@ -104,9 +110,10 @@ func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
 	rt.Log.Printf("(%d tool turns, %d in / %d out tokens)", res.ToolTurns, res.Usage.InputTokens, res.Usage.OutputTokens)
 
 	questions := plan.ResearchQuestions
-	if len(questions) > maxResearchQuestions {
-		rt.Log.Printf("research: capping %d questions to %d (cost guard)", len(questions), maxResearchQuestions)
-		questions = questions[:maxResearchQuestions]
+
+	if maxQ := cfg.maxQuestions(); len(questions) > maxQ {
+		rt.Log.Printf("research: capping %d questions to %d (cost guard)", len(questions), maxQ)
+		questions = questions[:maxQ]
 	}
 
 	var reports []ResearchReport
@@ -165,7 +172,11 @@ func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
 	msg := renderBrief(brief, edReport)
 	dest := p.sinks
 	if dest == nil {
-		dest = []sinks.Sink{sinks.Console{}}
+		selected, err := selectSinks(cfg, rt)
+		if err != nil {
+			return err
+		}
+		dest = selected
 	}
 	for _, s := range dest {
 		if err := s.Deliver(ctx, msg); err != nil {

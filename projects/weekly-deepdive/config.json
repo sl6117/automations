@@ -1,0 +1,4 @@
+{
+    "deliverTo": ["telegram", "console"],
+    "maxResearchQuestions": 3
+  }
