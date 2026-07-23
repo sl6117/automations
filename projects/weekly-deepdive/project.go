@@ -52,6 +52,10 @@ func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
 	if err != nil {
 		return fmt.Errorf("read synthesizer prompt: %w", err)
 	}
+	editorSys, err := os.ReadFile(filepath.Join(rt.ProjectDir, "prompts", "editor.md"))
+	if err != nil {
+		return fmt.Errorf("read editor prompt: %w", err)
+	}
 
 	chat := p.chat
 	if chat == nil {
@@ -140,6 +144,21 @@ func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
 	}
 	rt.Log.Printf("brief:\n%s", briefOut)
 	rt.Log.Printf("synthesizer: %d in / %d out tokens", usage.InputTokens, usage.OutputTokens)
+
+	edReport, edUsage, err := editBrief(ctx, chat, string(editorSys), brief, reports)
+	if err != nil {
+		return err // API/parse breakage; Pass=false is not an error
+	}
+	edOut, err := json.MarshalIndent(edReport, "", "  ")
+	if err != nil {
+		return err
+	}
+	rt.Log.Printf("editor:\n%s", edOut)
+	rt.Log.Printf("editor: pass=%v failures=%d (%d in / %d out tokens)",
+		edReport.Pass, len(edReport.Failures), edUsage.InputTokens, edUsage.OutputTokens)
+	if !edReport.Pass {
+		rt.Log.Printf("editor: contract fails (shipping anyway): %v", edReport.Failures)
+	}
 
 	if !rt.DryRun {
 		rt.Log.Println("delivery not wired yet; plan+research only")
