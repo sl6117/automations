@@ -171,6 +171,11 @@ func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
 	rt.Log.Printf("editor:\n%s", edOut)
 	rt.Log.Printf("editor: pass=%v failures=%d (%d in / %d out tokens)",
 		edReport.Pass, len(edReport.Failures), edUsage.InputTokens, edUsage.OutputTokens)
+	if !edReport.Pass && cfg.ReviseBudget > 0 {
+		var rusage ai.Usage
+		brief, edReport, rusage = runReviseLoop(ctx, chat, string(synthesizerSys), string(editorSys), plan, reports, brief, edReport, cfg.ReviseBudget, rt.Log)
+		rt.Log.Printf("revise loop done: pass=%v (%d in / %d out tokens)", edReport.Pass, rusage.InputTokens, rusage.OutputTokens)
+	}
 	if !edReport.Pass {
 		rt.Log.Printf("editor: contract fails (shipping anyway): %v", edReport.Failures)
 	}

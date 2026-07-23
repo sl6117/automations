@@ -12,6 +12,7 @@ import (
 type Config struct {
 	DeliverTo            []string `json:"deliverTo"`
 	MaxResearchQuestions int      `json:"maxResearchQuestions"`
+	ReviseBudget         int      `json:"reviseBudget"` // revision passes when the editor fails; 0 = loop off
 }
 
 // maxQuestions is the research fan-out cap; absent/0 falls back to the default cost guard.
