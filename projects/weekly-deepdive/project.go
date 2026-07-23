@@ -13,6 +13,7 @@ import (
 	"github.com/sl6117/automations/internal/agent"
 	"github.com/sl6117/automations/internal/ai"
 	"github.com/sl6117/automations/internal/runner"
+	"github.com/sl6117/automations/pkg/sinks"
 )
 
 const (
@@ -34,6 +35,7 @@ type project struct {
 	chat  ai.ChatClient
 	tools agent.ToolSource
 	now   func() time.Time
+	sinks []sinks.Sink // nil -> console only (Telegram waits on config.json)
 }
 
 func (p *project) Name() string { return "weekly-deepdive" }
@@ -160,8 +162,16 @@ func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
 		rt.Log.Printf("editor: contract fails (shipping anyway): %v", edReport.Failures)
 	}
 
-	if !rt.DryRun {
-		rt.Log.Println("delivery not wired yet; plan+research only")
+	msg := renderBrief(brief, edReport)
+	dest := p.sinks
+	if dest == nil {
+		dest = []sinks.Sink{sinks.Console{}}
+	}
+	for _, s := range dest {
+		if err := s.Deliver(ctx, msg); err != nil {
+			return fmt.Errorf("deliver via %s: %w", s.Name(), err)
+		}
+		rt.Log.Printf("delivered via %s", s.Name())
 	}
 	return nil
 }
