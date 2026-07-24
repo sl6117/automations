@@ -1,0 +1,12 @@
+.git
+.env
+.env.*
+bin/
+infra/
+logs/
+docs/
+reference/
+.cursor/
+**/subscribers.json
+**/state.json
+.DS_Store

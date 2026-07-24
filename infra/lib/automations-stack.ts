@@ -1,20 +1,26 @@
 import * as cdk from "aws-cdk-lib";
 import * as lambda from "aws-cdk-lib/aws-lambda";
+import { Platform } from "aws-cdk-lib/aws-ecr-assets";
 import { Construct } from "constructs";
+import * as path from "path";
 
 export class AutomationsStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
-    // Bite-1 smoke test: proves bootstrap + deploy + invoke before any real
-    // packaging. Replaced by the container-image functions in bite 2.
-    new lambda.Function(this, "Hello", {
-      functionName: "automations-hello",
-      runtime: lambda.Runtime.NODEJS_22_X,
-      handler: "index.handler",
-      code: lambda.Code.fromInline(
-        "exports.handler = async (event) => { console.log('hello from automations', event); return { ok: true }; };"
-      ),
+    // One image for all projects (step 9 design): built from the repo-root
+    // Dockerfile, bundling auto-lambda + digest-mcp + projects/* assets.
+    const image = lambda.DockerImageCode.fromImageAsset(
+      path.join(__dirname, "..", ".."),
+      { platform: Platform.LINUX_ARM64 }
+    );
+
+    new lambda.DockerImageFunction(this, "Digest", {
+      functionName: "automations-digest",
+      code: image,
+      architecture: lambda.Architecture.ARM_64,
+      timeout: cdk.Duration.minutes(10),
+      memorySize: 1024,
     });
   }
 }
