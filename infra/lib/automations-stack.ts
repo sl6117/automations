@@ -50,21 +50,20 @@ export class AutomationsStack extends cdk.Stack {
     const digest = makeWorker("Digest", "automations-digest", cdk.Duration.minutes(10));
     const deepdive = makeWorker("Deepdive", "automations-deepdive", cdk.Duration.minutes(15));
 
-    // Cutover phase 1 (step 9 design): schedules fire with dryRun:true while
-    // launchd stays live. Flip to dryRun:false + unschedule launchd together.
+   // These schedules are the sole triggers for both projects; launchd is retired.
     const tz = cdk.TimeZone.AMERICA_LOS_ANGELES;
 
     new scheduler.Schedule(this, "DailyDigestSchedule", {
       schedule: scheduler.ScheduleExpression.cron({ minute: "0", hour: "9", timeZone: tz }),
       target: new targets.LambdaInvoke(digest, {
-        input: scheduler.ScheduleTargetInput.fromObject({ project: "twitter-digest", dryRun: true }),
+        input: scheduler.ScheduleTargetInput.fromObject({ project: "twitter-digest", dryRun: false }),
       }),
     });
 
     new scheduler.Schedule(this, "WeeklyDeepdiveSchedule", {
       schedule: scheduler.ScheduleExpression.cron({ minute: "0", hour: "10", weekDay: "SUN", timeZone: tz }),
       target: new targets.LambdaInvoke(deepdive, {
-        input: scheduler.ScheduleTargetInput.fromObject({ project: "weekly-deepdive", dryRun: true }),
+        input: scheduler.ScheduleTargetInput.fromObject({ project: "weekly-deepdive", dryRun: false }),
       }),
     });
   }
