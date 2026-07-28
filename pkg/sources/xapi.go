@@ -43,9 +43,14 @@ type xListTweetsResponse struct {
 		ID            string `json:"id"`
 		Text          string `json:"text"`
 		AuthorID      string `json:"author_id"`
+		CreatedAt     string `json:"created_at"`
 		PublicMetrics struct {
-			LikeCount    int `json:"like_count"`
-			RetweetCount int `json:"retweet_count"`
+			LikeCount       int `json:"like_count"`
+			RetweetCount    int `json:"retweet_count"`
+			ReplyCount      int `json:"reply_count"`
+			QuoteCount      int `json:"quote_count"`
+			BookmarkCount   int `json:"bookmark_count"`
+			ImpressionCount int `json:"impression_count"`
 		} `json:"public_metrics"`
 		ReferencedTweets []struct {
 			Type string `json:"type"`
@@ -58,9 +63,12 @@ type xListTweetsResponse struct {
 
 	Includes struct {
 		Users []struct {
-			ID       string `json:"id"`
-			Name     string `json:"name"`
-			Username string `json:"username"`
+			ID            string `json:"id"`
+			Name          string `json:"name"`
+			Username      string `json:"username"`
+			PublicMetrics struct {
+				FollowersCount int `json:"followers_count"`
+			} `json:"public_metrics"`
 		} `json:"users"`
 		Tweets []struct {
 			ID        string `json:"id"`
@@ -134,6 +142,19 @@ func fullText(text, note string) string {
 	return text
 }
 
+// parseCreatedAt converts the API timestamp. An absent or malformedvalue degrades to the zero time ("age unknown")
+// rather than failing the fetch: a refused run costs a day of digests and the reads are billed either way.
+func parseCreatedAt(s string) time.Time {
+	if s == "" {
+		return time.Time{}
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
+}
+
 func idNewer(a, b string) bool {
 	na, errA := strconv.ParseUint(a, 10, 64)
 	nb, errB := strconv.ParseUint(b, 10, 64)
@@ -149,9 +170,9 @@ func (x XAPI) fetchPage(ctx context.Context, httpClient *http.Client, base, pagi
 
 	q := url.Values{}
 	q.Set("max_results", "50")
-	q.Set("tweet.fields", "public_metrics,referenced_tweets,note_tweet")
+	q.Set("tweet.fields", "public_metrics,referenced_tweets,note_tweet,created_at")
 	q.Set("expansions", "author_id,referenced_tweets.id,referenced_tweets.id.author_id")
-	q.Set("user.fields", "name,username")
+	q.Set("user.fields", "name,username,public_metrics")
 	if paginationToken != "" {
 		q.Set("pagination_token", paginationToken)
 	}
@@ -198,12 +219,15 @@ func (x XAPI) fetchPage(ctx context.Context, httpClient *http.Client, base, pagi
 // pages are newest-first, so once true, every following page is already seen
 func (x XAPI) tweetsFromPage(parsed xListTweetsResponse) (tweets []Tweet, reachedCursor bool) {
 
-	type user struct{ name, username string }
+	type user struct {
+		name, username string
+		followers      int
+	}
 
 	users := make(map[string]user, len(parsed.Includes.Users))
 
 	for _, u := range parsed.Includes.Users {
-		users[u.ID] = user{name: u.Name, username: u.Username}
+		users[u.ID] = user{name: u.Name, username: u.Username, followers: u.PublicMetrics.FollowersCount}
 	}
 
 	type refTweet struct{ text, authorID string }
@@ -239,13 +263,19 @@ func (x XAPI) tweetsFromPage(parsed xListTweetsResponse) (tweets []Tweet, reache
 			}
 		}
 		tweets = append(tweets, Tweet{
-			ID:      d.ID,
-			Author:  author.name,
-			Handle:  "@" + author.username,
-			Text:    text,
-			URL:     fmt.Sprintf("https://x.com/%s/status/%s", author.username, d.ID),
-			Likes:   d.PublicMetrics.LikeCount,
-			Reposts: d.PublicMetrics.RetweetCount,
+			ID:              d.ID,
+			Author:          author.name,
+			Handle:          "@" + author.username,
+			Text:            text,
+			URL:             fmt.Sprintf("https://x.com/%s/status/%s", author.username, d.ID),
+			Likes:           d.PublicMetrics.LikeCount,
+			Reposts:         d.PublicMetrics.RetweetCount,
+			Replies:         d.PublicMetrics.ReplyCount,
+			Quotes:          d.PublicMetrics.QuoteCount,
+			Bookmarks:       d.PublicMetrics.BookmarkCount,
+			Impressions:     d.PublicMetrics.ImpressionCount,
+			CreatedAt:       parseCreatedAt(d.CreatedAt),
+			AuthorFollowers: author.followers,
 		})
 	}
 	return tweets, reachedCursor
