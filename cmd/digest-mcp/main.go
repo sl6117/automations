@@ -205,10 +205,29 @@ func (s *digestServer) getCost(ctx context.Context, req *mcp.CallToolRequest, in
 	return nil, out, nil
 }
 
+// blockedFetchHost reports whether h is an X/Twitter host. Unauthenticated fetches there return a login wall
+// researchers were guessing status ids to build URLs for tweets already supplied in their prompt.
+// t.co stays allowed: those are real links from the tweets and redirect off-platform.
+func blockedFetchHost(h string) bool {
+	host := strings.ToLower(h)
+	if i := strings.IndexByte(host, ':'); i >= 0 {
+		host = host[:i]
+	}
+	for _, b := range []string{"twitter.com", "x.com"} {
+		if host == b || strings.HasSuffix(host, "."+b) {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *digestServer) fetchURL(ctx context.Context, req *mcp.CallToolRequest, in fetchURLInput) (*mcp.CallToolResult, fetchURLOutput, error) {
 	u, err := url.Parse(in.URL)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return nil, fetchURLOutput{}, fmt.Errorf("url must be http(s) with a host")
+	}
+	if blockedFetchHost(u.Host) {
+		return nil, fetchURLOutput{}, fmt.Errorf("%s cannot be fetched: it requires auth and returns a login wall, not the tweet. The source tweets are already in your prompt in full — use those, and fetch the articles they link to instead", u.Host)
 	}
 	// Strip userinfo so credentials in the URL never go outbound.
 	u.User = nil

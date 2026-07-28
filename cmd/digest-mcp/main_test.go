@@ -201,3 +201,21 @@ func TestFetchURLStripsUserinfo(t *testing.T) {
 		t.Errorf("body = %q", out.Body)
 	}
 }
+
+func TestFetchURLBlocksXHosts(t *testing.T) {
+	s := &digestServer{}
+	for _, u := range []string{
+		"https://twitter.com/Ric_RTP/status/1812345678",
+		"https://x.com/someone",
+		"https://mobile.twitter.com/someone",
+		"https://X.com:443/someone",
+	} {
+		if _, _, err := s.fetchURL(context.Background(), nil, fetchURLInput{URL: u}); err == nil {
+			t.Errorf("fetch %s: want a rejection, got nil", u)
+		}
+	}
+	// t.co carries the real outbound links from tweets and must stay reachable.
+	if blockedFetchHost("t.co") {
+		t.Error("t.co must not be blocked")
+	}
+}
