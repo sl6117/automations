@@ -519,6 +519,115 @@ func TestXAPIFetchToleratesUnparseableCreatedAt(t *testing.T) {
 	}
 }
 
+// The page cap binding is silent data loss: pagination is newest-first and the cursor
+// advances to the newest id regardless, so the posts past the last fetched page are never
+// retrieved and never will be. The flag is how we find out it happened.
+func TestXAPIFetchFlagsTruncationAtThePageCap(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.Header().Set("Content-Type", "application/json")
+		// every page offers another: the list always has more than the cap allows
+		io.WriteString(w, `{
+			"data": [{"id": "900", "text": "more where this came from", "author_id": "42",
+			 "public_metrics": {"like_count": 1, "retweet_count": 0}}],
+			"includes": {"users": [{"id": "42", "name": "Author", "username": "author"}]},
+			"meta": {"next_token": "always-another-page"}
+		}`)
+	}))
+	defer server.Close()
+
+	var truncated bool
+	x := XAPI{
+		BearerToken: "test-token", ListID: "12345", BaseURL: server.URL,
+		SinceID: "1", MaxPages: 2, Truncated: &truncated,
+	}
+	if _, err := x.Fetch(context.Background()); err != nil {
+		t.Fatalf("Fetch returned error: %v", err)
+	}
+
+	if requests != 2 {
+		t.Errorf("made %d requests, want 2 (the cap)", requests)
+	}
+	if !truncated {
+		t.Error("truncated = false, want true: the cap bound with more pages available")
+	}
+}
+
+func TestXAPIFetchDoesNotFlagTruncationWhenCursorReached(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("pagination_token") == "" {
+			io.WriteString(w, `{
+				"data": [{"id": "500", "text": "newest", "author_id": "42", "public_metrics": {"like_count": 1, "retweet_count": 0}}],
+				"includes": {"users": [{"id": "42", "name": "Author", "username": "author"}]},
+				"meta": {"next_token": "page2"}
+			}`)
+			return
+		}
+		io.WriteString(w, `{
+			"data": [{"id": "200", "text": "the cursor itself", "author_id": "42", "public_metrics": {"like_count": 1, "retweet_count": 0}}],
+			"includes": {"users": [{"id": "42", "name": "Author", "username": "author"}]},
+			"meta": {"next_token": "there-is-more-but-we-are-caught-up"}
+		}`)
+	}))
+	defer server.Close()
+
+	var truncated bool
+	x := XAPI{
+		BearerToken: "test-token", ListID: "12345", BaseURL: server.URL,
+		SinceID: "200", MaxPages: 5, Truncated: &truncated,
+	}
+	if _, err := x.Fetch(context.Background()); err != nil {
+		t.Fatalf("Fetch returned error: %v", err)
+	}
+	// caught up with the cursor: everything new was retrieved, nothing was lost
+	if truncated {
+		t.Error("truncated = true, want false: the fetch reached the cursor")
+	}
+}
+
+func TestXAPIFetchDoesNotFlagTruncationWhenTheListRunsOut(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{
+			"data": [{"id": "500", "text": "the only page", "author_id": "42", "public_metrics": {"like_count": 1, "retweet_count": 0}}],
+			"includes": {"users": [{"id": "42", "name": "Author", "username": "author"}]}
+		}`)
+	}))
+	defer server.Close()
+
+	var truncated bool
+	x := XAPI{
+		BearerToken: "test-token", ListID: "12345", BaseURL: server.URL,
+		SinceID: "1", MaxPages: 5, Truncated: &truncated,
+	}
+	if _, err := x.Fetch(context.Background()); err != nil {
+		t.Fatalf("Fetch returned error: %v", err)
+	}
+	if truncated {
+		t.Error("truncated = true, want false: the list had no further pages")
+	}
+}
+
+// Truncated is optional, exactly like Reads: a caller that does not care must not crash.
+func TestXAPIFetchTruncationFlagIsOptional(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{
+			"data": [{"id": "900", "text": "more", "author_id": "42", "public_metrics": {"like_count": 1, "retweet_count": 0}}],
+			"includes": {"users": [{"id": "42", "name": "Author", "username": "author"}]},
+			"meta": {"next_token": "always-another-page"}
+		}`)
+	}))
+	defer server.Close()
+
+	x := XAPI{BearerToken: "test-token", ListID: "12345", BaseURL: server.URL, SinceID: "1", MaxPages: 2}
+	if _, err := x.Fetch(context.Background()); err != nil {
+		t.Fatalf("Fetch returned error: %v", err)
+	}
+}
+
 // A retweet's follower count and timestamp must describe the retweeting account, not the
 // original author: recency is when it crossed our list, and the audience is the one that
 // actually engaged with this post.

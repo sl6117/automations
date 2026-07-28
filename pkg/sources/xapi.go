@@ -30,6 +30,7 @@ type XAPI struct {
 	SinceID     string // client-side cursor: drop tweets at/below this id (endpoint has no since_id param)
 	MaxPages    int
 	Reads       *int         // optional billed-read counter: +50 per fetched page (nil = don't count)
+	Truncated   *bool        // optional: set when the page cap cut the window short (nil = don't report)
 	BaseURL     string       // defaults to defaultXAPIBaseURL
 	HTTPClient  *http.Client // defaults to a client with sane timeout
 }
@@ -104,6 +105,7 @@ func (x XAPI) Fetch(ctx context.Context) ([]Tweet, error) {
 
 	var tweets []Tweet
 	nextToken := ""
+	truncated := false
 
 	for page := 0; page < maxPages; page++ {
 		parsed, err := x.fetchPage(ctx, httpClient, base, nextToken)
@@ -121,6 +123,16 @@ func (x XAPI) Fetch(ctx context.Context) ([]Tweet, error) {
 			break
 		}
 		nextToken = parsed.Meta.NextToken
+
+		// more pages exist but this was the last oe allowed: the rest of the window is
+		// lost for good, bc the cursor still advnaces to the newst id
+		if page == maxPages-1 {
+			truncated = true
+		}
+
+		if x.Truncated != nil {
+			*x.Truncated = truncated
+		}
 	}
 
 	return tweets, nil

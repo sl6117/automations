@@ -66,9 +66,10 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 	}
 
 	var sourceReads int
+	var sourceTruncated bool
 	source := p.source
 	if source == nil {
-		selected, err := selectSource(cfg, state.SinceID, &sourceReads)
+		selected, err := selectSource(cfg, state.SinceID, &sourceReads, &sourceTruncated)
 		if err != nil {
 			return err
 		}
@@ -89,8 +90,17 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 		return err
 	}
 
+	if sourceTruncated {
+		runTime.Log.Println("[twitter-digest] WARNING: fetch hit the page cap with more content available - the oldest posts in this window were never fetched and never will be")
+	}
 	// process (no tokens) + reason (heuristic, no tokens)
-	kept := filter(tweets, cfg.MinEngagement, cfg.MaxPerAuthor)
+	kept, observations := filter(tweets, cfg.MinEngagement, cfg.MaxPerAuthor)
+
+	meta := FetchMeta{Source: source.Name(), Reads: sourceReads, Truncated: sourceTruncated}
+	if err := saveSourceStats(ctx, store, meta, observations); err != nil {
+		// measurement must never cost a digest: the reads are already paid for
+		runTime.Log.Printf("[twitter-digest] source stats write failed: %v", err)
+	}
 
 	if len(kept) == 0 {
 		runTime.Log.Println("[twitter-digest] no tweets to digest - skipping send")
@@ -425,7 +435,7 @@ func (p *project) resolveClient(cfg Config) (ai.Client, error) {
 	return selectClient(cfg)
 }
 
-func selectSource(cfg Config, sinceID string, reads *int) (sources.Source, error) {
+func selectSource(cfg Config, sinceID string, reads *int, truncated *bool) (sources.Source, error) {
 	switch cfg.Source {
 	case "", "mock":
 		return sources.Mock{}, nil
@@ -441,7 +451,7 @@ func selectSource(cfg Config, sinceID string, reads *int) (sources.Source, error
 		if listID == "" {
 			return nil, fmt.Errorf("source %q needs a list id (config.json listId or X_LIST_ID)", cfg.Source)
 		}
-		return sources.XAPI{BearerToken: token, ListID: listID, SinceID: sinceID, Reads: reads}, nil
+		return sources.XAPI{BearerToken: token, ListID: listID, SinceID: sinceID, Reads: reads, Truncated: truncated}, nil
 	default:
 		return nil, fmt.Errorf("unknown source: %q", cfg.Source)
 	}
