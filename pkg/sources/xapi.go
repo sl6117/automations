@@ -14,7 +14,7 @@ import (
 
 const (
 	defaultXAPIBaseURL = "https://api.x.com/2"
-	defaultMaxPages    = 3 // cap on pages per fetch: each page is 50 billed reads
+	defaultMaxPages    = 5 // cap on pages per fetch: each page is 50 billed reads
 )
 
 // ErrQuota marks non-transient quota/billing refusals (the x monthly spend cap)
