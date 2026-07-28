@@ -9,30 +9,34 @@ import (
 // filter -> drops low-signal posts before the LLM vets it (saves tokens)
 // low engagement, exact duplicates, over maxPerAuthor
 // per handle (0 = no cap). Feed order is newest-first, cap keeps each authors most recent posts
-func filter(tweets []sources.Tweet, minEngagement, maxPerAuthor int) []sources.Tweet {
+// also returns one observation row per fetched post, kept or dropped, in fetch order.
+func filter(tweets []sources.Tweet, minEngagement, maxPerAuthor int) ([]sources.Tweet, []PostObservation) {
 	seen := make(map[string]bool)
 	perAuthor := make(map[string]int)
 	out := make([]sources.Tweet, 0, len(tweets))
+	obs := make([]PostObservation, 0, len(tweets))
 
 	for _, tweet := range tweets {
-		if tweet.Likes+tweet.Reposts < minEngagement {
-			// not enough engagement to be worth summarizing
-			continue
-		}
+		row := observe(tweet)
 		key := normalize(tweet.Text)
 
-		if seen[key] {
+		switch {
+		case tweet.Likes+tweet.Reposts < minEngagement:
+			row.DropReason = DropLowEngagement
+		case seen[key]:
 			// this is a duplicate
-			continue
+			row.DropReason = DropDuplicate
+		case maxPerAuthor > 0 && perAuthor[tweet.Handle] >= maxPerAuthor:
+			row.DropReason = DropPerAuthorCap
+		default:
+			row.Kept = true
+			seen[key] = true
+			perAuthor[tweet.Handle]++
+			out = append(out, tweet)
 		}
-		if maxPerAuthor > 0 && perAuthor[tweet.Handle] >= maxPerAuthor {
-			continue
-		}
-		seen[key] = true
-		perAuthor[tweet.Handle]++
-		out = append(out, tweet)
+		obs = append(obs, row)
 	}
-	return out
+	return out, obs
 }
 
 func normalize(text string) string {
