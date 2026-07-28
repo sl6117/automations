@@ -16,6 +16,7 @@ import (
 type DropReason string
 
 const (
+	sourceStatsPrefix            = "logs/sourcestats/"
 	DropLowEngagement DropReason = "low_engagement"
 	DropDuplicate     DropReason = "duplicate"
 	DropPerAuthorCap  DropReason = "per_author_cap"
@@ -110,7 +111,7 @@ func saveSourceStats(ctx context.Context, store storage.Store, meta FetchMeta, o
 	if err != nil {
 		return fmt.Errorf("marshal source stats: %w", err)
 	}
-	key := "logs/sourcestats/" + now.Format("2006-01-02T15-04-05Z") + "-twitter-digest.json"
+	key := sourceStatsPrefix + now.Format("2006-01-02T15-04-05Z") + "-twitter-digest.json"
 	if err := store.Put(ctx, key, data); err != nil {
 		return fmt.Errorf("write source stats: %w", err)
 	}

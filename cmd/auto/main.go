@@ -20,7 +20,7 @@ import (
 	// Project registrations go here as blank imports so their init() runs.
 	"github.com/sl6117/automations/internal/storage"
 	_ "github.com/sl6117/automations/projects/hello"
-	_ "github.com/sl6117/automations/projects/twitter-digest"
+	twitterdigest "github.com/sl6117/automations/projects/twitter-digest"
 	_ "github.com/sl6117/automations/projects/weekly-deepdive"
 )
 
@@ -37,6 +37,8 @@ func main() {
 		cmdRun(os.Args[2:])
 	case "cost":
 		cmdCost()
+	case "sources":
+		cmdSources(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", os.Args[1])
 		usage()
@@ -109,4 +111,17 @@ func cmdRun(args []string) {
 		os.Exit(1)
 	}
 
+}
+
+func cmdSources(args []string) {
+	fs := flag.NewFlagSet("sources", flag.ExitOnError)
+	since := fs.String("since", "", "earliest run date to include, YYYY-MM-DD")
+	fs.Parse(args)
+	store, err := storage.FromEnv(context.Background())
+	if err != nil {
+		log.Fatalf("sources: %v", err)
+	}
+	if err := twitterdigest.SourcesReport(context.Background(), store, os.Stdout, *since); err != nil {
+		log.Fatalf("sources: %v", err)
+	}
 }
