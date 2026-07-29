@@ -158,12 +158,18 @@ func SourcesReport(ctx context.Context, store storage.Store, w io.Writer, since 
 	if err != nil {
 		return err
 	}
+	artifacts, err := LoadCitations(ctx, store, since)
+	if err != nil {
+		return err
+	}
 	s := Summarize(runs)
+	c := SummarizeCitations(artifacts)
 	if s.Runs == 0 {
 		fmt.Fprintf(w, "No X fetch records yet under %s\n", sourceStatsPrefix)
 		if s.SkippedRuns > 0 {
 			fmt.Fprintf(w, "(%d non-xapi run(s) skipped)\n", s.SkippedRuns)
 		}
+		writeCitationSummary(w, c)
 		return nil
 	}
 	fmt.Fprintf(w, "X source report - %d runs, %s to %s\n", s.Runs, dayOf(s.FirstTimestamp), dayOf(s.LastTimestamp))
@@ -174,20 +180,40 @@ func SourcesReport(ctx context.Context, store storage.Store, w io.Writer, since 
 	if s.SkippedRuns > 0 {
 		fmt.Fprintf(w, "%d non-xapi run(s) skipped\n", s.SkippedRuns)
 	}
+	writeCitationSummary(w, c)
 	fmt.Fprintln(w)
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "HANDLE\tFETCHED\tSHARE\tKEPT\tKEEP%\tMED ENG\tMAX ENG\t$/KEPT\tLOW\tDUP\tCAP")
+	fmt.Fprintln(tw, "HANDLE\tFETCHED\tSHARE\tKEPT\tKEEP%\tCITED\tCITE%\tMED ENG\tMAX ENG\t$/KEPT\tLOW\tDUP\tCAP")
 	for _, h := range s.Handles {
 		perKept := "-"
 		if h.Kept > 0 {
 			perKept = fmt.Sprintf("$%.3f", h.CostPerKeptUSD)
 		}
-		fmt.Fprintf(tw, "%s\t%d\t%.1f%%\t%d\t%.1f%%\t%d\t%d\t%s\t%d\t%d\t%d\n",
+		cited, citeRate := "-", "-"
+		if r, ok := c.ByHandle[h.Handle]; ok {
+			cited = fmt.Sprintf("%d", r.Cited)
+			citeRate = fmt.Sprintf("%.1f%%", r.CiteRate*100)
+		}
+		fmt.Fprintf(tw, "%s\t%d\t%.1f%%\t%d\t%.1f%%\t%s\t%s\t%d\t%d\t%s\t%d\t%d\t%d\n",
 			h.Handle, h.Fetched, h.VolumeShare*100, h.Kept, h.KeepRate*100,
+			cited, citeRate,
 			h.MedianEngagement, h.MaxEngagement, perKept,
 			h.DroppedLowEngagement, h.DroppedDuplicate, h.DroppedPerAuthorCap)
+
 	}
 	return tw.Flush()
+}
+
+// writeCitationSummary states the digest archive's own window and rate. It prints even when no fetch records exist:
+// the two archives are independent and the digest one is older.
+func writeCitationSummary(w io.Writer, c CitationsSummary) {
+	if c.Digests > 0 {
+		fmt.Fprintf(w, "citations: %d digests, %s to %s - the digest cited %d of the %d posts that reached the model (%.1f%%)\n",
+			c.Digests, dayOf(c.FirstTimestamp), dayOf(c.LastTimestamp), c.Cited, c.Kept, c.CiteRate*100)
+	}
+	if c.UnmatchedCitations > 0 {
+		fmt.Fprintf(w, "%d citation(s) point at posts that were never fed to the model\n", c.UnmatchedCitations)
+	}
 }
 
 // median returns the middle value, or the mean of the middle pair when the count is
