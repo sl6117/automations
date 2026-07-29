@@ -1,7 +1,10 @@
 # North star: grow the framework into an agentic system
 
 **Date:** 2026-07-06
-**Status:** active — this is the roadmap agents should steer toward
+**Status:** build sequence COMPLETE (steps 1-9, finished 2026-07-25). This doc stays as the
+standing statement of intent and working agreements; active work now comes off the idea
+shelf below, currently the input-quality arc (curate the X list, engagement rubric,
+corroboration labelling).
 
 ## The goal
 
@@ -41,7 +44,9 @@ not as a separate track.
    through the Store seam~~ (done 2026-07-08; lesson learned: tests must inject
    `&storage.FS{Root: t.TempDir()}`, never `NewFS()` — ambient AUTOMATION_ROOT
    points at the real repo and a test once polluted the real cost log)
-3. CI: GitHub Actions running `go vet` + `go test ./...` on push
+3. ~~CI: GitHub Actions running `go vet` + `go test ./...` on push~~ (done —
+   `.github/workflows/ci.yml`; note the `brnaches:` typo means the push trigger has no
+   branch filter and CI runs on every branch)
 4. ~~Delivery queue — fixes the silent-subscriber-loss bug~~ (done 2026-07-09, built
    directly on DynamoDB since it was already live, skipping the "filesystem first" plan:
    `internal/queue` — Queue contract (Enqueue/Pending/Claim/Complete/Fail), Memory +
@@ -88,16 +93,34 @@ not as a separate track.
    Design agreed 2026-07-20 — see `2026-07-20-step8-weekly-deepdive-design.md`:
    own MCP server over the digest archive + orchestrator-as-host; hedge-don't-drop;
    gates verify contract compliance, not truth.)
-9. Lambda + EventBridge via CDK — "the thing that runs the worker," last, not first
+9. ~~Lambda + EventBridge via CDK — "the thing that runs the worker," last, not first~~
+   (done 2026-07-25 — see `2026-07-25-step9-lambda-eventbridge-complete.md`: CDK app in
+   `infra/`, one container image bundling both binaries and project assets, two Lambdas
+   with least-privilege IAM, secrets from SSM at cold start, EventBridge Scheduler in
+   America/Los_Angeles, launchd retired.
+   Lesson learned #6: the cutover ran dry-run-in-parallel first so every mechanism was
+   proven in the cloud before anything could send — but a dry run cannot exercise code
+   gated behind `if !runTime.DryRun` (the tier-2 judge and revise loop), so the first live
+   invoke was still a first. Prove those paths deliberately, not on a scheduled run.
+   Lesson learned #7: a wrapper stuck in retry backoff is a PENDING run, not a failed one;
+   `sleep` does not advance while the machine is asleep. Re-read the log immediately before
+   any manual recovery send — a stale read caused one duplicate digest on 2026-07-25.)
 
 ## Idea shelf (approved, unscheduled)
 
 - Single-source labeling (owner 2026-07-18, cheap slice of the corroboration idea):
   a digest bullet citing exactly one account is structurally "single-source" — label
   it in rendering/eval, no LLM needed. Small bite, any time.
+  IN PROGRESS: this is phase 4 of the input-quality arc, generalized from a boolean label
+  to a count of distinct handles carrying the same story. Annotate only, never suppress.
 - Dead-letter requeue tooling (`auto queue ls` / `requeue`) — queue operations depth;
   needs a careful fresh session, touches production queue data.
 - Ranking-budget filter; video/linked-media enrichment (post-roadmap).
+  IN PROGRESS: the ranking-budget filter is phase 3 of the input-quality arc (per-handle
+  rolling median plus engagement-per-hour, replacing the flat `minEngagement` threshold).
+  Prompted by a real finding on 2026-07-27: at 38 accounts the list exceeds the 3-page
+  (150-post) fetch cap every day, so the oldest posts of each day are silently dropped
+  while still being paid for at $0.005/read.
 
 ## The portfolio story this produces
 
