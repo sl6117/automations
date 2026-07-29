@@ -179,6 +179,8 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 		}
 		if !runTime.DryRun {
 			var judge *JudgeReport
+			var initialJudge *JudgeReport
+			revisionAdopted := false
 			judgeErr := ""
 			jclient, cerr := p.resolveClient(cfg)
 			switch {
@@ -195,6 +197,7 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 					runTime.Log.Printf("[twitter-digest] judge error (%s): %v", lang, jerr)
 				} else {
 					judge = &report
+					initialJudge = &report
 					if fails := report.Failures(); len(fails) == 0 {
 						runTime.Log.Printf("[twitter-digest] judge (%s): all dimensions pass", lang)
 					} else {
@@ -211,6 +214,7 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 				if finalDraft != message {
 					message = finalDraft
 					judge = finalReport
+					revisionAdopted = true
 					digests[lang] = message
 					failures, coverage = evalDigest(message, kept, cfg.Topics)
 					runTime.Log.Printf("[twitter-digest] revision adopted (%s); eval: %s", lang, coverage)
@@ -218,16 +222,18 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 			}
 
 			if err := saveArtifact(ctx, store, Artifact{
-				Model:        cfg.Model,
-				Language:     lang,
-				Kept:         kept,
-				Digest:       message,
-				InputTokens:  usage.InputTokens,
-				OutputTokens: usage.OutputTokens,
-				EvalFailures: failures,
-				EvalCoverage: coverage,
-				Judge:        judge,
-				JudgeError:   judgeErr,
+				Model:           cfg.Model,
+				Language:        lang,
+				Kept:            kept,
+				Digest:          message,
+				InputTokens:     usage.InputTokens,
+				OutputTokens:    usage.OutputTokens,
+				EvalFailures:    failures,
+				EvalCoverage:    coverage,
+				Judge:           judge,
+				JudgeError:      judgeErr,
+				InitialJudge:    initialJudge,
+				RevisionAdopted: revisionAdopted,
 			}); err != nil {
 				return fmt.Errorf("save artifact: %w", err)
 			}
