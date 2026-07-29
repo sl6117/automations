@@ -170,6 +170,8 @@ func SourcesReport(ctx context.Context, store storage.Store, w io.Writer, since 
 			fmt.Fprintf(w, "(%d non-xapi run(s) skipped)\n", s.SkippedRuns)
 		}
 		writeCitationSummary(w, c)
+		fmt.Fprintln(w)
+		writeCitationTable(w, c)
 		return nil
 	}
 	fmt.Fprintf(w, "X source report - %d runs, %s to %s\n", s.Runs, dayOf(s.FirstTimestamp), dayOf(s.LastTimestamp))
@@ -214,6 +216,37 @@ func writeCitationSummary(w io.Writer, c CitationsSummary) {
 	if c.UnmatchedCitations > 0 {
 		fmt.Fprintf(w, "%d citation(s) point at posts that were never fed to the model\n", c.UnmatchedCitations)
 	}
+}
+
+// rankCitations orders the per-handle map into a stable slice: most kept posts first,
+// alphabetial tie-break so the table is stable run to run.
+func rankCitations(c CitationsSummary) []CitationReport {
+	rows := make([]CitationReport, 0, len(c.ByHandle))
+	for _, r := range c.ByHandle {
+		rows = append(rows, r)
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].Kept != rows[j].Kept {
+			return rows[i].Kept > rows[j].Kept
+		}
+		return rows[i].Handle < rows[j].Handle
+	})
+	return rows
+}
+
+// writeCitationTable renders the per-handle hit rate. Only needed when there is no fetch table
+// to carry CITED/CITE% inline; on empty input it prints nothing.
+func writeCitationTable(w io.Writer, c CitationsSummary) {
+	rows := rankCitations(c)
+	if len(rows) == 0 {
+		return
+	}
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "HANDLE\tKEPT\tCITED\tCITE%")
+	for _, r := range rows {
+		fmt.Fprintf(tw, "%s\t%d\t%d\t%.1f%%\n", r.Handle, r.Kept, r.Cited, r.CiteRate*100)
+	}
+	tw.Flush()
 }
 
 // median returns the middle value, or the mean of the middle pair when the count is

@@ -436,3 +436,54 @@ func TestSourcesReportWithDigestsButNoFetchRecords(t *testing.T) {
 		t.Errorf("citation window missing:\n%s", out)
 	}
 }
+
+// rankCitations turns the ByHandle map into a stable slice: busiest handle first so the
+// eye lands on the accounts that cost the most attention, alphabetical tie-break so the
+// table does not reshuffle run to run. Same ordering contract as Summarize's Handles.
+func TestRankCitationsOrder(t *testing.T) {
+	rows := rankCitations(SummarizeCitations(citationFixture()))
+
+	if len(rows) != 3 {
+		t.Fatalf("got %d rows, want 3: %+v", len(rows), rows)
+	}
+	// @a has 3 kept; @b and @c tie at 1 and break alphabetically
+	want := []string{"@a", "@b", "@c"}
+	for i, h := range want {
+		if rows[i].Handle != h {
+			t.Errorf("rows[%d] = %q, want %q", i, rows[i].Handle, h)
+		}
+	}
+}
+
+func TestRankCitationsEmpty(t *testing.T) {
+	if rows := rankCitations(SummarizeCitations(nil)); len(rows) != 0 {
+		t.Errorf("rows = %v, want none", rows)
+	}
+}
+
+// With no fetch table to carry CITED/CITE% inline, the per-handle citation data must get
+// its own table. Otherwise every handle's editorial hit rate is computed and discarded,
+// which is exactly the state the archive is in tonight: 400+ kept posts, zero fetch rows.
+func TestSourcesReportPerHandleCitationTableWhenNoFetchRecords(t *testing.T) {
+	store := &storage.FS{Root: t.TempDir()}
+	seedCitations(t, store, citationFixture())
+
+	var buf bytes.Buffer
+	if err := SourcesReport(context.Background(), store, &buf, ""); err != nil {
+		t.Fatalf("no fetch records is not an error: %v", err)
+	}
+	out := buf.String()
+
+	if !strings.Contains(out, "HANDLE") || !strings.Contains(out, "CITE%") {
+		t.Fatalf("per-handle citation table header missing:\n%s", out)
+	}
+	// @a kept 3 and got 2 cited; @c reached the model once and was ignored
+	a := row(t, out, "@a")
+	if a[1] != "3" || a[2] != "2" || a[3] != "66.7%" {
+		t.Errorf("@a row = %v, want kept 3, cited 2, 66.7%%", a)
+	}
+	c := row(t, out, "@c")
+	if c[1] != "1" || c[2] != "0" || c[3] != "0.0%" {
+		t.Errorf("@c row = %v, want kept 1, cited 0, 0.0%%", c)
+	}
+}
