@@ -39,6 +39,8 @@ func main() {
 		cmdCost()
 	case "sources":
 		cmdSources(os.Args[2:])
+	case "verdicts":
+		cmdVerdicts(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", os.Args[1])
 		usage()
@@ -123,5 +125,18 @@ func cmdSources(args []string) {
 	}
 	if err := twitterdigest.SourcesReport(context.Background(), store, os.Stdout, *since); err != nil {
 		log.Fatalf("sources: %v", err)
+	}
+}
+
+func cmdVerdicts(args []string) {
+	fs := flag.NewFlagSet("verdicts", flag.ExitOnError)
+	since := fs.String("since", "", "earliest run date to include, YYYY-MM-DD")
+	fs.Parse(args)
+	store, err := storage.FromEnv(context.Background())
+	if err != nil {
+		log.Fatalf("verdicts: %v", err)
+	}
+	if err := twitterdigest.VerdictsReport(context.Background(), store, os.Stdout, *since); err != nil {
+		log.Fatalf("verdicts: %v", err)
 	}
 }
