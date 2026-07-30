@@ -175,3 +175,106 @@ func TestFilterObservationsCarryTheMetricsWePaidFor(t *testing.T) {
 		t.Errorf("authorFollowers = %d, want 250000", o.AuthorFollowers)
 	}
 }
+
+// The feed arrives newest-first, so a first-come cap keeps an author's most recent posts
+// whatever their quality. The cap decides ~30% of a real fetch, so it has to rank the
+// author's eligible posts and keep the best ones.
+func TestFilterCapKeepsHighestEngagementNotNewest(t *testing.T) {
+	in := []sources.Tweet{
+		{ID: "1", Handle: "@loud", Text: "newest but thin", Likes: 100, Reposts: 5},
+		{ID: "2", Handle: "@loud", Text: "also thin", Likes: 110, Reposts: 2},
+		{ID: "3", Handle: "@loud", Text: "the story of the day", Likes: 4000, Reposts: 900},
+		{ID: "4", Handle: "@loud", Text: "strong second", Likes: 2500, Reposts: 300},
+	}
+
+	kept, obs := filter(in, 100, 2)
+
+	wantIDs := []string{"3", "4"}
+	if len(kept) != len(wantIDs) {
+		t.Fatalf("kept %d, want %d", len(kept), len(wantIDs))
+	}
+	for i, id := range wantIDs {
+		if kept[i].ID != id {
+			t.Errorf("survivor[%d] = %q, want %q", i, kept[i].ID, id)
+		}
+	}
+	for _, id := range []string{"1", "2"} {
+		if o := observationFor(t, obs, id); o.DropReason != DropPerAuthorCap {
+			t.Errorf("post %s: dropReason = %q, want %q", id, o.DropReason, DropPerAuthorCap)
+		}
+	}
+}
+
+// Ranking decides which posts survive the cap, not what order the model reads them in.
+// The digest prompt is fed newest-first; reordering it by score is a silent prompt change.
+func TestFilterCapPreservesFetchOrderOfSurvivors(t *testing.T) {
+	in := []sources.Tweet{
+		{ID: "1", Handle: "@a", Text: "strong", Likes: 3000},
+		{ID: "2", Handle: "@a", Text: "weak", Likes: 150},
+		{ID: "3", Handle: "@a", Text: "strongest", Likes: 5000},
+	}
+
+	kept, _ := filter(in, 100, 2)
+
+	wantIDs := []string{"1", "3"}
+	if len(kept) != len(wantIDs) {
+		t.Fatalf("kept %d, want %d", len(kept), len(wantIDs))
+	}
+	for i, id := range wantIDs {
+		if kept[i].ID != id {
+			t.Errorf("survivor[%d] = %q, want %q (fetch order, not score order)", i, kept[i].ID, id)
+		}
+	}
+}
+
+// Equal engagement falls back to the old behaviour: the newer post wins. Without a stable
+// rank the kept set would drift between runs on identical input.
+func TestFilterCapTieBreaksTowardNewer(t *testing.T) {
+	in := []sources.Tweet{
+		{ID: "1", Handle: "@a", Text: "story A", Likes: 400, Reposts: 100},
+		{ID: "2", Handle: "@a", Text: "story B", Likes: 500},
+		{ID: "3", Handle: "@a", Text: "story C", Likes: 500},
+	}
+
+	kept, _ := filter(in, 100, 2)
+
+	wantIDs := []string{"1", "2"}
+	if len(kept) != len(wantIDs) {
+		t.Fatalf("kept %d, want %d", len(kept), len(wantIDs))
+	}
+	for i, id := range wantIDs {
+		if kept[i].ID != id {
+			t.Errorf("survivor[%d] = %q, want %q", i, kept[i].ID, id)
+		}
+	}
+}
+
+// A post already rejected for low engagement or as a duplicate must not burn a cap slot:
+// the cap is a budget over posts the model could actually have been shown.
+func TestFilterCapCountsOnlyEligiblePosts(t *testing.T) {
+	in := []sources.Tweet{
+		{ID: "1", Handle: "@a", Text: "spam", Likes: 1},
+		{ID: "2", Handle: "@a", Text: "story A", Likes: 500},
+		{ID: "3", Handle: "@a", Text: "story A", Likes: 900},
+		{ID: "4", Handle: "@a", Text: "story B", Likes: 400},
+		{ID: "5", Handle: "@a", Text: "story C", Likes: 300},
+	}
+
+	kept, obs := filter(in, 100, 3)
+
+	wantIDs := []string{"2", "4", "5"}
+	if len(kept) != len(wantIDs) {
+		t.Fatalf("kept %d, want %d", len(kept), len(wantIDs))
+	}
+	for i, id := range wantIDs {
+		if kept[i].ID != id {
+			t.Errorf("survivor[%d] = %q, want %q", i, kept[i].ID, id)
+		}
+	}
+	if o := observationFor(t, obs, "1"); o.DropReason != DropLowEngagement {
+		t.Errorf("post 1: dropReason = %q, want %q", o.DropReason, DropLowEngagement)
+	}
+	if o := observationFor(t, obs, "3"); o.DropReason != DropDuplicate {
+		t.Errorf("post 3: dropReason = %q, want %q", o.DropReason, DropDuplicate)
+	}
+}

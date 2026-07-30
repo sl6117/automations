@@ -1,6 +1,7 @@
 package twitterdigest
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/sl6117/automations/pkg/sources"
@@ -8,12 +9,12 @@ import (
 
 // filter -> drops low-signal posts before the LLM vets it (saves tokens)
 // low engagement, exact duplicates, over maxPerAuthor
-// per handle (0 = no cap). Feed order is newest-first, cap keeps each authors most recent posts
+// per handle (0 = no cap). Eligible posts are ranked by engagement within their author, so
+// the cap keeps each author's best posrts rather than whichever arrived first.
 // also returns one observation row per fetched post, kept or dropped, in fetch order.
 func filter(tweets []sources.Tweet, minEngagement, maxPerAuthor int) ([]sources.Tweet, []PostObservation) {
 	seen := make(map[string]bool)
-	perAuthor := make(map[string]int)
-	out := make([]sources.Tweet, 0, len(tweets))
+	eligible := make(map[string][]int)
 	obs := make([]PostObservation, 0, len(tweets))
 
 	for _, tweet := range tweets {
@@ -26,16 +27,36 @@ func filter(tweets []sources.Tweet, minEngagement, maxPerAuthor int) ([]sources.
 		case seen[key]:
 			// this is a duplicate
 			row.DropReason = DropDuplicate
-		case maxPerAuthor > 0 && perAuthor[tweet.Handle] >= maxPerAuthor:
-			row.DropReason = DropPerAuthorCap
 		default:
 			row.Kept = true
 			seen[key] = true
-			perAuthor[tweet.Handle]++
-			out = append(out, tweet)
+			eligible[tweet.Handle] = append(eligible[tweet.Handle], len(obs))
 		}
 		obs = append(obs, row)
 	}
+	if maxPerAuthor > 0 {
+		for _, idx := range eligible {
+			if len(idx) <= maxPerAuthor {
+				continue
+			}
+			// stable, so equal engagement leaves the newer post ahead as feed order had it
+			sort.SliceStable(idx, func(a, b int) bool {
+				return obs[idx[a]].engagement() > obs[idx[b]].engagement()
+			})
+			for _, i := range idx[maxPerAuthor:] {
+				obs[i].Kept = false
+				obs[i].DropReason = DropPerAuthorCap
+			}
+		}
+	}
+
+	out := make([]sources.Tweet, 0, len(obs))
+	for i, row := range obs {
+		if row.Kept {
+			out = append(out, tweets[i])
+		}
+	}
+
 	return out, obs
 }
 

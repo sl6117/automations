@@ -45,6 +45,9 @@ type PostObservation struct {
 	DropReason      DropReason `json:"dropReason,omitempty"`
 }
 
+// engagement is the signal both the low-engagement floor and the per-author cap rank on.
+func (p PostObservation) engagement() int { return p.Likes + p.Reposts }
+
 // FetchMeta is the run-level context for a set of observations: which source produced them,
 // what they cost, and whehter the page cap cut the window short.
 type FetchMeta struct {
