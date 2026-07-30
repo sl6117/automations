@@ -22,6 +22,22 @@ fixed, not before.
 - **DynamoDB 400KB item limit.** One blob per run under `logs/sourcestats/`; ~250 indented
   rows ≈ 135KB. `MarshalIndent` inflates a machine-read log ~40% for no benefit — switch to
   compact `json.Marshal` if the source list grows.
+- **Retweets distort every engagement number.** X reports an RT with `like_count: 0` and
+  `retweet_count` equal to the ORIGINAL post's count, so `Likes+Reposts` scores a retweet by
+  someone else's popularity. It clears the `minEngagement` floor easily and wins per-author
+  cap slots off content the account did not write. `observe()` records `IsRetweet`, so any
+  scoring work should use it.
+- **`evalDigest` false-positives on retweet citations.** For an RT the model attributes the
+  content to the original author but the status id belongs to the retweeter, so the cited URL
+  is `x.com/<original>/status/<retweeter-id>`. `eval.go` compares whole URLs against the kept
+  set and reports `hallucinated url`. Harmless downstream: X resolves status URLs by id and
+  ignores the handle segment, `citations.go` joins on the numeric id, and the revise loop
+  gates on the judge's faithfulness verdict, never on `evalFailures`.
+- **@FirstSquawk and @Reuters cannot clear `minEngagement: 100`.** On 2026-07-29 they were
+  77 of 241 fetched posts (32% of the spend) with max engagement 97 and 92 — every post
+  dropped. Newswire accounts are high-substance and low-engagement, so an absolute floor is
+  the wrong instrument for them. @Reuters has never had a kept post in the archive;
+  @FirstSquawk has 28 citations at 82.4%, so it is marginal rather than worthless.
 
 ## weekly-deepdive
 
@@ -41,3 +57,15 @@ fixed, not before.
 - **Schedules:** digest daily 09:00 PT, deepdive Sundays 10:00 PT — both EventBridge, both
   live. Nothing runs locally anymore (no launchd, no crontab). Lambda logs live in
   CloudWatch, which is off-limits per `~/.cursor/rules/no-aws-cli.mdc`.
+- **Pushing to `main` does not deploy — this has already cost a day of data.** CI is
+  test-only and the Lambdas run a container image baked at `cdk deploy` time, so committed Go
+  code keeps running the old behavior on schedule until someone runs
+  `cd infra && npm run deploy` with Docker Desktop up. The judge-funnel instrumentation was
+  committed 2026-07-28, went unnoticed as undeployed, and the 2026-07-29 run produced another
+  day of `Unmeasurable` artifacts. Any bite that changes runtime behavior ends with a deploy.
+- **Confirming a deploy landed:** re-run `npm run diff`. The image URI on the `[-]` side is
+  what CloudFormation currently holds, so it should show the digest you just pushed. The
+  `waiting in review for manual execution (--no-execute)` line during deploy is misleading —
+  the `deploying… [1/1]` and `✅` that follow are the real outcome.
+- **Both Lambdas share one image.** Deploying for the digest also ships weekly-deepdive code,
+  so an unfinished deepdive change on `main` will go live with an unrelated digest deploy.

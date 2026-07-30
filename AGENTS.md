@@ -42,8 +42,18 @@ and blank-import the package in `cmd/auto/main.go`.
 
 
 ## Running
-- Build `go build -o bin/auto ./cmd/auto` - REQUIRED after code changes; launchd runs the prebuilt `bin/auto`, so a stale binary silently runs old behavior.
+- Build `go build -o bin/auto ./cmd/auto` after code changes - this is the LOCAL CLI only.
 - Try it: `bin/auto run twitter-digest --dry-run` (no sends, no state writes).
+- Reading real stored rows needs `STORAGE_BACKEND=dynamo`; without it the CLI reads a local
+  filesystem copy the Lambdas never write to.
 - Never run the mock source without `--dry-run`: it overwrites the real fetch cursor.
 - Tests: `go test ./...`.
-- Scheduled daily 09:00 via launchd (`scripts/schedule-launchd.sh`); logs in `logs/`.
+
+## Deploying (scheduled runs)
+- Scheduled runs are AWS Lambda on EventBridge: digest daily 09:00 PT, deepdive Sundays
+  10:00 PT. Nothing runs locally (no launchd, no crontab). Logs are in CloudWatch.
+- **Pushing to `main` does NOT deploy.** CI is test-only. The Lambdas run a container image
+  built at deploy time, so Go changes reach production only via
+  `cd infra && npm run deploy` (Docker Desktop must be running). Skipping this silently
+  leaves the old behavior scheduled.
+- Both Lambdas share one image, so a digest deploy also ships deepdive code.
