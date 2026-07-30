@@ -37,8 +37,10 @@ type PostObservation struct {
 	Impressions     int        `json:"impressions"`
 	AuthorFollowers int        `json:"authorFollowers"`
 	TextLength      int        `json:"textLength"`
+	OwnTextLength   int        `json:"ownTextLength"`
 	HasLink         bool       `json:"hasLink"`
 	IsRetweet       bool       `json:"isRetweet"`
+	IsQuote         bool       `json:"isQuote"`
 	IsReply         bool       `json:"isReply"`
 	IsLongForm      bool       `json:"isLongForm"`
 	Kept            bool       `json:"kept"`
@@ -67,8 +69,41 @@ type SourceStats struct {
 	Posts     []PostObservation `json:"posts"`
 }
 
+// Markers that xapi.tweetsFromPage writes into a post's text when it carries someone
+// else's: everything from a marker onward belongs to the quoted or replied-to post.
+const (
+	retweetPrefix = "RT @"
+	quoteMarker   = "\n[quoting @"
+	replyMarker   = "\n[replying to @"
+)
+
+// ownText returns the words the author actually wrote: the post with borrowed blocks, URLs
+// and bare mentions removed. A retweet returns empty because the author wrote none of it.
+// Engagement measures audience size and popularity, never substance, so a post that reduces
+// to nothing here has no reporting in it however well it performed.
+func ownText(text string) string {
+	body := text
+	for _, marker := range []string{quoteMarker, replyMarker} {
+		if i := strings.Index(body, marker); i >= 0 {
+			body = body[:i]
+		}
+	}
+	if strings.HasPrefix(body, retweetPrefix) {
+		return ""
+	}
+	fields := strings.Fields(body)
+	words := make([]string, 0, len(fields))
+	for _, w := range fields {
+		if strings.HasPrefix(w, "http://") || strings.HasPrefix(w, "https://") || strings.HasPrefix(w, "@") {
+			continue
+		}
+		words = append(words, w)
+	}
+	return strings.Join(words, " ")
+}
+
 // observe records a post's shape, leaving the verdict fields zero for filter to set.
-// Retweets and replies are detceted from the markers xapi.tweetsFromPage writes into Text.
+// Retweets, quote-tweets and replies are detected from the markers xapi.tweetsFromPage writes into Text.
 func observe(t sources.Tweet) PostObservation {
 	length := utf8.RuneCountInString(t.Text)
 
@@ -84,9 +119,11 @@ func observe(t sources.Tweet) PostObservation {
 		Impressions:     t.Impressions,
 		AuthorFollowers: t.AuthorFollowers,
 		TextLength:      length,
+		OwnTextLength:   utf8.RuneCountInString(ownText(t.Text)),
 		HasLink:         strings.Contains(t.Text, "http://") || strings.Contains(t.Text, "https://"),
-		IsRetweet:       strings.HasPrefix(t.Text, "RT @"),
-		IsReply:         strings.Contains(t.Text, "\n[replying to @"),
+		IsRetweet:       strings.HasPrefix(t.Text, retweetPrefix),
+		IsQuote:         strings.Contains(t.Text, quoteMarker),
+		IsReply:         strings.Contains(t.Text, replyMarker),
 		IsLongForm:      length > 280,
 	}
 }

@@ -123,6 +123,167 @@ func TestObserveCopiesMetricsAndTime(t *testing.T) {
 	}
 }
 
+// A quote-tweet is not a retweet. xapi appends the quoted post as a marker block instead of
+// replacing the text, so the "RT @" prefix check missed quote-tweets entirely and a bare-emoji
+// quote-tweet read as an original post competing on its author's full engagement.
+func TestObserveDetectsQuoteTweets(t *testing.T) {
+	cases := []struct {
+		name      string
+		text      string
+		isRetweet bool
+		isQuote   bool
+		isReply   bool
+	}{
+		{
+			name: "plain post",
+			text: "Anthropic shipped a new model today",
+		},
+		{
+			name:      "retweet",
+			text:      "RT @orig: something worth repeating",
+			isRetweet: true,
+		},
+		{
+			name:    "quote tweet with a comment",
+			text:    "this is the part everyone is missing\n[quoting @orig: the story being quoted]",
+			isQuote: true,
+		},
+		{
+			name:    "bare emoji quote tweet",
+			text:    "😂\n[quoting @orig: the story being quoted]",
+			isQuote: true,
+		},
+		{
+			name:    "reply",
+			text:    "strong disagree with this take\n[replying to @orig: the claim]",
+			isReply: true,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := observe(sources.Tweet{ID: "1", Handle: "@a", Text: c.text})
+
+			if got.IsRetweet != c.isRetweet {
+				t.Errorf("isRetweet = %v, want %v", got.IsRetweet, c.isRetweet)
+			}
+			if got.IsQuote != c.isQuote {
+				t.Errorf("isQuote = %v, want %v", got.IsQuote, c.isQuote)
+			}
+			if got.IsReply != c.isReply {
+				t.Errorf("isReply = %v, want %v", got.IsReply, c.isReply)
+			}
+		})
+	}
+}
+
+// ownText isolates the words the author actually wrote. Engagement measures audience size,
+// never substance; a post whose own text is empty after removing borrowed blocks, URLs and
+// bare mentions has nothing for a text digest to summarize, however popular it is.
+func TestOwnTextKeepsOnlyTheAuthorsWords(t *testing.T) {
+	cases := []struct {
+		name string
+		text string
+		want string
+	}{
+		{
+			name: "plain post is untouched",
+			text: "Anthropic shipped a new model today",
+			want: "Anthropic shipped a new model today",
+		},
+		{
+			name: "quoted block is not the author's words",
+			text: "this is the part everyone is missing\n[quoting @orig: the story being quoted]",
+			want: "this is the part everyone is missing",
+		},
+		{
+			name: "bare emoji quote tweet contributes one character",
+			text: "😂\n[quoting @orig: a long story about something consequential]",
+			want: "😂",
+		},
+		{
+			name: "replied-to block is not the author's words",
+			text: "strong disagree with this take\n[replying to @orig: the claim being answered]",
+			want: "strong disagree with this take",
+		},
+		{
+			name: "a retweet contributes nothing",
+			text: "RT @orig: something worth repeating",
+			want: "",
+		},
+		{
+			name: "a retweet of a quote tweet still contributes nothing",
+			text: "RT @orig: their words\n[quoting @third: the underlying source]",
+			want: "",
+		},
+		{
+			name: "urls are not words",
+			text: "the paper is here https://t.co/abc123",
+			want: "the paper is here",
+		},
+		{
+			name: "a bare link is empty",
+			text: "https://t.co/abc123",
+			want: "",
+		},
+		{
+			name: "plain http links are stripped too",
+			text: "old school http://example.com/story",
+			want: "old school",
+		},
+		{
+			name: "mentions are addressing, not substance",
+			text: "@FirstSquawk this is already priced in",
+			want: "this is already priced in",
+		},
+		{
+			name: "whitespace collapses",
+			text: "  spaced   out\n words ",
+			want: "spaced out words",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := ownText(c.text); got != c.want {
+				t.Errorf("ownText = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// Own-text length is counted in characters for the same reason TextLength is: the digest
+// runs in Korean, where byte length triples.
+func TestObserveCountsOwnTextInCharacters(t *testing.T) {
+	korean := "인공지능 모델이 오늘 공개되었다"
+	text := korean + "\n[quoting @orig: the story being quoted]"
+
+	got := observe(sources.Tweet{ID: "1", Text: text})
+
+	want := len([]rune(korean))
+	if got.OwnTextLength != want {
+		t.Errorf("ownTextLength = %d, want %d runes (bytes would be %d)", got.OwnTextLength, want, len(korean))
+	}
+}
+
+// OwnTextLength is a new signal, not a replacement: TextLength still measures everything the
+// model is shown, including the quoted post, which is what the prompt actually costs.
+func TestObserveKeepsFullTextLengthAlongsideOwnText(t *testing.T) {
+	text := "😂\n[quoting @orig: a long story about something consequential]"
+
+	got := observe(sources.Tweet{ID: "1", Text: text})
+
+	if got.TextLength != len([]rune(text)) {
+		t.Errorf("textLength = %d, want %d (the whole post, quoted block included)", got.TextLength, len([]rune(text)))
+	}
+	if got.OwnTextLength != 1 {
+		t.Errorf("ownTextLength = %d, want 1", got.OwnTextLength)
+	}
+	if got.OwnTextLength >= got.TextLength {
+		t.Errorf("ownTextLength %d should be shorter than textLength %d", got.OwnTextLength, got.TextLength)
+	}
+}
+
 func TestSaveSourceStatsWritesOneBlobPerRun(t *testing.T) {
 	store := &storage.FS{Root: t.TempDir()}
 	ctx := context.Background()
