@@ -10,7 +10,9 @@ import (
 // filter -> drops low-signal posts before the LLM vets it (saves tokens)
 // low engagement, exact duplicates, over maxPerAuthor
 // per handle (0 = no cap). Eligible posts are ranked by engagement within their author, so
-// the cap keeps each author's best posrts rather than whichever arrived first.
+// the cap keeps each author's best posts rather than whichever arrived first. Retweets rank
+// below the author's own posts: X reports them with zero likes and the original's repost
+// count, so their engagement is someone else's audience, not this author's.
 // also returns one observation row per fetched post, kept or dropped, in fetch order.
 func filter(tweets []sources.Tweet, minEngagement, maxPerAuthor int) ([]sources.Tweet, []PostObservation) {
 	seen := make(map[string]bool)
@@ -41,7 +43,11 @@ func filter(tweets []sources.Tweet, minEngagement, maxPerAuthor int) ([]sources.
 			}
 			// stable, so equal engagement leaves the newer post ahead as feed order had it
 			sort.SliceStable(idx, func(a, b int) bool {
-				return obs[idx[a]].engagement() > obs[idx[b]].engagement()
+				x, y := obs[idx[a]], obs[idx[b]]
+				if x.IsRetweet != y.IsRetweet {
+					return !x.IsRetweet
+				}
+				return x.engagement() > y.engagement()
 			})
 			for _, i := range idx[maxPerAuthor:] {
 				obs[i].Kept = false

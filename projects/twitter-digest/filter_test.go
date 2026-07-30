@@ -278,3 +278,69 @@ func TestFilterCapCountsOnlyEligiblePosts(t *testing.T) {
 		t.Errorf("post 3: dropReason = %q, want %q", o.DropReason, DropDuplicate)
 	}
 }
+
+// X reports a retweet with zero likes and the ORIGINAL post's repost count, so raw
+// engagement scores a retweet by someone else's audience. Left alone it wins cap slots off
+// the author's own reporting: on 2026-07-29 a retweeted inspirational quote scored 2498 and
+// took a slot from @elonmusk's real posts.
+func TestFilterCapRanksRetweetsBelowOriginals(t *testing.T) {
+	in := []sources.Tweet{
+		{ID: "1", Handle: "@elon", Text: "RT @someone: an inspirational quote", Reposts: 2498},
+		{ID: "2", Handle: "@elon", Text: "Starship static fire complete", Likes: 400, Reposts: 60},
+		{ID: "3", Handle: "@elon", Text: "Neuralink update", Likes: 300, Reposts: 40},
+	}
+
+	kept, obs := filter(in, 100, 2)
+
+	wantIDs := []string{"2", "3"}
+	if len(kept) != len(wantIDs) {
+		t.Fatalf("kept %d, want %d", len(kept), len(wantIDs))
+	}
+	for i, id := range wantIDs {
+		if kept[i].ID != id {
+			t.Errorf("survivor[%d] = %q, want %q (originals outrank the retweet)", i, kept[i].ID, id)
+		}
+	}
+	if o := observationFor(t, obs, "1"); o.DropReason != DropPerAuthorCap {
+		t.Errorf("retweet: dropReason = %q, want %q", o.DropReason, DropPerAuthorCap)
+	}
+}
+
+// Demoting retweets must not mean excluding them: real news arrives by retweet, and the
+// 2026-07-29 digest's whole AI section came from one. A retweet takes a slot whenever the
+// author has fewer originals than the cap, and retweets rank against each other on engagement.
+func TestFilterCapKeepsBestRetweetWhenAuthorLacksOriginals(t *testing.T) {
+	in := []sources.Tweet{
+		{ID: "1", Handle: "@elon", Text: "RT @cb_doge: Grok 4.5 ranked #1 on LaurenBench", Reposts: 145},
+		{ID: "2", Handle: "@elon", Text: "RT @someone: an inspirational quote", Reposts: 2498},
+		{ID: "3", Handle: "@elon", Text: "Starship static fire complete", Likes: 400, Reposts: 60},
+	}
+
+	kept, obs := filter(in, 100, 2)
+
+	wantIDs := []string{"2", "3"}
+	if len(kept) != len(wantIDs) {
+		t.Fatalf("kept %d, want %d", len(kept), len(wantIDs))
+	}
+	for i, id := range wantIDs {
+		if kept[i].ID != id {
+			t.Errorf("survivor[%d] = %q, want %q", i, kept[i].ID, id)
+		}
+	}
+	if o := observationFor(t, obs, "1"); o.DropReason != DropPerAuthorCap {
+		t.Errorf("weaker retweet: dropReason = %q, want %q", o.DropReason, DropPerAuthorCap)
+	}
+}
+
+// The demotion lives in the cap, not the floor: a retweet with no rival for a slot is kept.
+func TestFilterKeepsRetweetsThatClearTheFloor(t *testing.T) {
+	in := []sources.Tweet{
+		{ID: "1", Handle: "@a", Text: "RT @b: genuinely breaking news", Reposts: 500},
+	}
+
+	kept, _ := filter(in, 100, 0)
+
+	if len(kept) != 1 || kept[0].ID != "1" {
+		t.Errorf("kept = %+v, want the retweet: the cap demotes retweets, the floor does not", kept)
+	}
+}
