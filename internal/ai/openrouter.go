@@ -33,7 +33,8 @@ type chatRequest struct {
 
 type chatResponse struct {
 	Choices []struct {
-		Message chatMessage `json:"message"`
+		Message      chatMessage `json:"message"`
+		FinishReason string      `json:"finish_reason"`
 	} `json:"choices"`
 	Usage struct {
 		PromptTokens     int `json:"prompt_tokens"`
@@ -114,9 +115,16 @@ func (o OpenRouter) Complete(ctx context.Context, req Request) (Response, error)
 		return Response{}, fmt.Errorf("no choices in response")
 	}
 
+	// OpenAI-shaped APIs say "length" where Anthropic says "max_tokens"; callers get one vocabulary
+	stop := chatResponseObj.Choices[0].FinishReason
+	if stop == "length" {
+		stop = StopMaxTokens
+	}
+
 	return Response{
-		Text:  chatResponseObj.Choices[0].Message.Content,
-		Model: req.Model,
+		Text:       chatResponseObj.Choices[0].Message.Content,
+		Model:      req.Model,
+		StopReason: stop,
 		Usage: Usage{
 			InputTokens:  chatResponseObj.Usage.PromptTokens,
 			OutputTokens: chatResponseObj.Usage.CompletionTokens,

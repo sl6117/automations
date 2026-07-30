@@ -57,3 +57,49 @@ func TestOpenRouterComplete(t *testing.T) {
 		t.Errorf("request prompt missing; got %+v", gotBody.Messages)
 	}
 }
+
+// OpenAI-shaped APIs call this "length" where Anthropic calls it "max_tokens". Callers
+// depend on the ai package for one vocabulary, so the adapter normalizes rather than
+// making every caller know which provider it happens to be talking to.
+func TestOpenRouterCompleteNormalizesLengthStop(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{
+			"choices": [{"message": {"role": "assistant", "content": "cut off mid-sen"}, "finish_reason": "length"}],
+			"usage": {"prompt_tokens": 12, "completion_tokens": 1500}
+		}`)
+	}))
+	defer server.Close()
+
+	client := OpenRouter{APIKey: "test-key", BaseURL: server.URL}
+	response, err := client.Complete(context.Background(), Request{Model: "m", Prompt: "summarize", MaxTokens: 1500})
+	if err != nil {
+		t.Fatalf("Complete returned error: %v", err)
+	}
+
+	if response.StopReason != StopMaxTokens {
+		t.Errorf("StopReason = %q, want %q normalized from finish_reason \"length\"", response.StopReason, StopMaxTokens)
+	}
+}
+
+// "stop" is the ordinary finish and must not be normalized into the truncation signal.
+func TestOpenRouterCompleteReportsNormalStop(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{
+			"choices": [{"message": {"role": "assistant", "content": "hello digest"}, "finish_reason": "stop"}],
+			"usage": {"prompt_tokens": 12, "completion_tokens": 5}
+		}`)
+	}))
+	defer server.Close()
+
+	client := OpenRouter{APIKey: "test-key", BaseURL: server.URL}
+	response, err := client.Complete(context.Background(), Request{Model: "m", Prompt: "summarize", MaxTokens: 1500})
+	if err != nil {
+		t.Fatalf("Complete returned error: %v", err)
+	}
+
+	if response.StopReason == StopMaxTokens {
+		t.Errorf("StopReason = %q, a completed answer must not read as truncated", response.StopReason)
+	}
+}

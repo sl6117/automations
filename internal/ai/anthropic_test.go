@@ -63,6 +63,56 @@ func TestAnthropicComplete(t *testing.T) {
 
 }
 
+// A completion cut off at max_tokens is indistinguishable from a finished one by its text
+// alone: it just ends mid-sentence. Callers cannot decide whether to trust the output
+// unless the stop reason survives the adapter.
+func TestAnthropicCompleteSurfacesTruncation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{
+			"model": "claude-haiku-4.5",
+			"stop_reason": "max_tokens",
+			"content": [{"type": "text", "text": "## AI\n- a story that stops mid-sen"}],
+			"usage": {"input_tokens": 12, "output_tokens": 1500}
+		}`)
+	}))
+	defer server.Close()
+
+	client := Anthropic{APIKey: "test-key", BaseURL: server.URL}
+	response, err := client.Complete(context.Background(), Request{Model: "claude-haiku-4.5", Prompt: "summarize", MaxTokens: 1500})
+	if err != nil {
+		t.Fatalf("Complete returned error: %v", err)
+	}
+
+	if response.StopReason != StopMaxTokens {
+		t.Errorf("StopReason = %q, want %q", response.StopReason, StopMaxTokens)
+	}
+}
+
+// The ordinary case must not look truncated, or every run trips the alarm.
+func TestAnthropicCompleteReportsNormalStop(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{
+			"model": "claude-haiku-4.5",
+			"stop_reason": "end_turn",
+			"content": [{"type": "text", "text": "hello digest"}],
+			"usage": {"input_tokens": 12, "output_tokens": 5}
+		}`)
+	}))
+	defer server.Close()
+
+	client := Anthropic{APIKey: "test-key", BaseURL: server.URL}
+	response, err := client.Complete(context.Background(), Request{Model: "claude-haiku-4.5", Prompt: "summarize", MaxTokens: 1500})
+	if err != nil {
+		t.Fatalf("Complete returned error: %v", err)
+	}
+
+	if response.StopReason == StopMaxTokens {
+		t.Errorf("StopReason = %q, a completed answer must not read as truncated", response.StopReason)
+	}
+}
+
 func TestAnthropicChat(t *testing.T) {
 	var gotBody anthropicChatRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -21,7 +21,7 @@ import (
 
 const (
 	digestTemperature = 0.2
-	digestMaxTokens   = 1500
+	digestMaxTokens   = 4000
 
 	queueName           = "twitter-digest"
 	deliveryLease       = 2 * time.Minute
@@ -165,7 +165,7 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 	var total ai.Usage
 
 	for _, lang := range languages {
-		message, usage, err := p.digest(ctx, runTime, cfg, kept, lang)
+		message, usage, truncated, err := p.digest(ctx, runTime, cfg, kept, lang)
 		if err != nil {
 			return err
 		}
@@ -228,6 +228,7 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 				Digest:          message,
 				InputTokens:     usage.InputTokens,
 				OutputTokens:    usage.OutputTokens,
+				Truncated:       truncated,
 				EvalFailures:    failures,
 				EvalCoverage:    coverage,
 				Judge:           judge,
@@ -401,22 +402,22 @@ func (p *project) drain(ctx context.Context, runTime *runner.Runtime, cfg Config
 	return nil
 }
 
-func (p *project) digest(ctx context.Context, runTime *runner.Runtime, cfg Config, kept []sources.Tweet, language string) (string, ai.Usage, error) {
+func (p *project) digest(ctx context.Context, runTime *runner.Runtime, cfg Config, kept []sources.Tweet, language string) (string, ai.Usage, bool, error) {
 
 	client, err := p.resolveClient(cfg)
 	if err != nil {
-		return "", ai.Usage{}, err
+		return "", ai.Usage{}, false, err
 	}
 
 	if runTime.DryRun || client == nil {
 		if !runTime.DryRun {
 			runTime.Log.Println("[twitter-digest] no LLM API Key; using offline heuristic")
 		}
-		return render(summarize(kept, cfg.Topics)), ai.Usage{}, nil
+		return render(summarize(kept, cfg.Topics)), ai.Usage{}, false, nil
 	}
 	prompt, err := buildPrompt(runTime.ProjectDir, cfg.Topics, kept, language)
 	if err != nil {
-		return "", ai.Usage{}, err
+		return "", ai.Usage{}, false, err
 	}
 
 	resp, err := client.Complete(ctx, ai.Request{
@@ -426,10 +427,16 @@ func (p *project) digest(ctx context.Context, runTime *runner.Runtime, cfg Confi
 		MaxTokens:   digestMaxTokens,
 	})
 	if err != nil {
-		return "", ai.Usage{}, fmt.Errorf("summarize via %s: %w", cfg.Model, err)
+		return "", ai.Usage{}, false, fmt.Errorf("summarize via %s: %w", cfg.Model, err)
 	}
 	runTime.Log.Printf("[twitter-digest] model=%s tokens in=%d out=%d", resp.Model, resp.Usage.InputTokens, resp.Usage.OutputTokens)
-	return resp.Text, resp.Usage, nil
+
+	truncated := resp.StopReason == ai.StopMaxTokens
+	if truncated {
+		runTime.Log.Printf("[twitter-digest] TRUNCATED (%s): hit the %d-token ceiling; trailing sections were never written and their subscribers get nothing", language, digestMaxTokens)
+	}
+
+	return resp.Text, resp.Usage, truncated, nil
 }
 
 // resolveClient returns the injected client or selects one from config

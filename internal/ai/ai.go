@@ -5,6 +5,11 @@ package ai
 
 import "context"
 
+// StopMaxTokens is the normalized stop reason for a completion the model did not finish:
+// it hit the caller's MaxTokens ceiling and was cut off mid-output. Providers spell this
+// differently ("max_tokens", "length"); adapters translate to this one value.
+const StopMaxTokens = "max_tokens"
+
 // reports tokens consumed by a single completion (cost logging)
 type Usage struct {
 	InputTokens  int
@@ -22,9 +27,10 @@ type Request struct {
 
 // Response is the model's reply plus accounting metadata.
 type Response struct {
-	Text  string
-	Model string
-	Usage Usage
+	Text       string
+	Model      string
+	StopReason string // why generation ended; StopMaxTokens means the text is cut off
+	Usage      Usage
 }
 
 // Client is any LLM BE that can complete a request

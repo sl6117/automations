@@ -36,8 +36,9 @@ type anthropicRequest struct {
 }
 
 type anthropicResponse struct {
-	Model   string `json:"model"`
-	Content []struct {
+	Model      string `json:"model"`
+	StopReason string `json:"stop_reason"`
+	Content    []struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
 	} `json:"content"`
@@ -112,8 +113,9 @@ func (a Anthropic) Complete(ctx context.Context, req Request) (Response, error) 
 	}
 
 	return Response{
-		Text:  text,
-		Model: parsedResponse.Model,
+		Text:       text,
+		Model:      parsedResponse.Model,
+		StopReason: parsedResponse.StopReason,
 		Usage: Usage{
 			InputTokens:  parsedResponse.Usage.InputTokens,
 			OutputTokens: parsedResponse.Usage.OutputTokens,

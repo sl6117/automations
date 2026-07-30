@@ -21,6 +21,7 @@ type Artifact struct {
 	Digest          string          `json:"digest"`
 	InputTokens     int             `json:"inputTokens"`
 	OutputTokens    int             `json:"outputTokens"`
+	Truncated       bool            `json:"truncated,omitempty"`
 	EvalFailures    []string        `json:"evalFailures"`
 	EvalCoverage    string          `json:"evalCoverage"`
 	Judge           *JudgeReport    `json:"judge,omitempty"`
