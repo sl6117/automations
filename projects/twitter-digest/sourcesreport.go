@@ -14,7 +14,12 @@ import (
 
 // X pay-per-use rate. Reads are billed per page of 50 regardless of how many posts on that page are useful,
 // which is why cost is apportioned by volume share below rather than charged to the posts that survived.
-const readCostUSD = 0.005
+const (
+	readCostUSD = 0.005
+	// thinOwnTextLimit is the character cutoff for "thin" kept posts in the own-text summary.
+	// Below this (and above zero) a non-retweet is substance-poor for a text digest.
+	thinOwnTextLimit = 10
+)
 
 // HandleREport is one account's contribution to the fetch budget across stored runs.
 type HandleReport struct {
@@ -34,16 +39,21 @@ type HandleReport struct {
 
 // SourcesSummary is the run-level view over the stored fetch records.
 type SourcesSummary struct {
-	Runs           int
-	SkippedRuns    int // non-xapi runs, excluded from every figure below
-	TruncatedRuns  int
-	Fetched        int
-	Kept           int
-	Reads          int
-	CostUSD        float64
-	FirstTimestamp string
-	LastTimestamp  string
-	Handles        []HandleReport
+	Runs                  int
+	SkippedRuns           int // non-xapi runs, excluded from every figure below
+	TruncatedRuns         int
+	Fetched               int
+	Kept                  int
+	Reads                 int
+	CostUSD               float64
+	FirstTimestamp        string
+	LastTimestamp         string
+	OwnTextMeasuredRuns   int // runs that carry own-text / quote instrumentation
+	OwnTextUnmeasuredRuns int // xapi runs that predate those fields
+	KeptMeasured          int // kept posts on measured runs only
+	KeptEmptyOwnText      int // kept, non-retweet, OwnTextLength == 0
+	KeptThinOwnText       int // kept, non-retweet, 0 < OwnTextLength < thinOwnTextLimit
+	Handles               []HandleReport
 }
 
 // LoadSourcesStats reads every stored fetch record, oldest first (key sort lexically by timestamp).
@@ -72,6 +82,38 @@ func LoadSourceStats(ctx context.Context, store storage.Store, since string) ([]
 	return runs, nil
 }
 
+// ownTextMeasured reports whether a run's rows carry the own-text / quote fields.
+// Pre-instrumentation blobs deserialize with OwnTextLength=0 and IsQuote=false for every post
+// treating those zeros as empty would make the whole archive look thin.
+// own-text length or a quote flag is enough to trust the run. IsRetweet alone is not:
+// that flag existed before own-text instrumentation.
+func ownTextMeasured(run SourceStats) bool {
+	for _, p := range run.Posts {
+		if p.OwnTextLength > 0 || p.IsQuote {
+			return true
+		}
+	}
+	return false
+}
+
+// countOwnText classifies one kept post for the own-text summary. Retweets are skipped:
+// their own-text is empty by design and is not a substance signal.
+func countOwnText(s *SourcesSummary, p PostObservation) {
+	if !p.Kept {
+		return
+	}
+	s.KeptMeasured++
+	if p.IsRetweet {
+		return
+	}
+	switch {
+	case p.OwnTextLength == 0:
+		s.KeptEmptyOwnText++
+	case p.OwnTextLength < thinOwnTextLimit:
+		s.KeptThinOwnText++
+	}
+}
+
 // Summarize aggregates stored runs into a per-handle ranking. Only xapi runs count:
 // mock runs from local development would otherwise skew every ratio
 func Summarize(runs []SourceStats) SourcesSummary {
@@ -91,6 +133,12 @@ func Summarize(runs []SourceStats) SourcesSummary {
 		s.Reads += run.Reads
 		if run.Truncated {
 			s.TruncatedRuns++
+		}
+		measured := ownTextMeasured(run)
+		if measured {
+			s.OwnTextMeasuredRuns++
+		} else {
+			s.OwnTextUnmeasuredRuns++
 		}
 		if s.FirstTimestamp == "" || run.Timestamp < s.FirstTimestamp {
 			s.FirstTimestamp = run.Timestamp
@@ -115,6 +163,9 @@ func Summarize(runs []SourceStats) SourcesSummary {
 			if p.Kept {
 				s.Kept++
 				a.report.Kept++
+			}
+			if measured {
+				countOwnText(&s, p)
 			}
 			switch p.DropReason {
 			case DropLowEngagement:
@@ -182,6 +233,7 @@ func SourcesReport(ctx context.Context, store storage.Store, w io.Writer, since 
 	if s.SkippedRuns > 0 {
 		fmt.Fprintf(w, "%d non-xapi run(s) skipped\n", s.SkippedRuns)
 	}
+	writeOwnTextSummary(w, s)
 	writeCitationSummary(w, c)
 	fmt.Fprintln(w)
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
@@ -232,6 +284,20 @@ func rankCitations(c CitationsSummary) []CitationReport {
 		return rows[i].Handle < rows[j].Handle
 	})
 	return rows
+}
+
+// writeOwnTextSummary reports how many kept posts had nothing (or almost nothing) for a text digest to summarize.
+// Silent when nothing has been measured yet so the line doesn't pretend Jul 29's zero-valued rows were empty.
+func writeOwnTextSummary(w io.Writer, s SourcesSummary) {
+	if s.OwnTextMeasuredRuns == 0 {
+		return
+	}
+	fmt.Fprintf(w, "own-text: of %d kept posts across %d instrumented run(s), %d empty and %d thin (<%d chars)",
+		s.KeptMeasured, s.OwnTextMeasuredRuns, s.KeptEmptyOwnText, s.KeptThinOwnText, thinOwnTextLimit)
+	if s.OwnTextUnmeasuredRuns > 0 {
+		fmt.Fprintf(w, "; %d run(s) predate own-text instrumentation", s.OwnTextUnmeasuredRuns)
+	}
+	fmt.Fprintln(w)
 }
 
 // writeCitationTable renders the per-handle hit rate. Only needed when there is no fetch table

@@ -318,6 +318,115 @@ func TestSourcesReportWithNoData(t *testing.T) {
 	}
 }
 
+// Pre-instrumentation runs deserialize with OwnTextLength=0 and IsQuote=false for every
+// post. Counting those zeros as "empty" would make every historical kept post look thin.
+// A run is measured only when it carries a positive own-text length or a quote-tweet flag.
+func TestSummarizeSkipsUnmeasuredOwnTextRuns(t *testing.T) {
+	got := Summarize(fixtureRuns())
+
+	if got.OwnTextMeasuredRuns != 0 {
+		t.Errorf("ownTextMeasuredRuns = %d, want 0 (fixture has no own-text fields)", got.OwnTextMeasuredRuns)
+	}
+	if got.OwnTextUnmeasuredRuns != 2 {
+		t.Errorf("ownTextUnmeasuredRuns = %d, want 2", got.OwnTextUnmeasuredRuns)
+	}
+	if got.KeptEmptyOwnText != 0 || got.KeptThinOwnText != 0 {
+		t.Errorf("empty/thin = %d/%d, want 0/0 on unmeasured runs", got.KeptEmptyOwnText, got.KeptThinOwnText)
+	}
+}
+
+// Hand-checkable: one measured run with 4 kept posts - a real post, a thin quote, an empty
+// quote, and a retweet (own-text empty by design, so it must not count as empty/thin).
+func TestSummarizeCountsEmptyAndThinKeptPosts(t *testing.T) {
+	runs := []SourceStats{
+		{
+			Timestamp: "2026-07-30T09:00:00Z", Source: "xapi", Reads: 50, Fetched: 5, Kept: 4,
+			Posts: []PostObservation{
+				{ID: "1", Handle: "@a", Likes: 200, Kept: true, OwnTextLength: 40},
+				{ID: "2", Handle: "@a", Likes: 200, Kept: true, OwnTextLength: 3, IsQuote: true},
+				{ID: "3", Handle: "@b", Likes: 200, Kept: true, OwnTextLength: 0, IsQuote: true},
+				{ID: "4", Handle: "@b", Likes: 200, Kept: true, OwnTextLength: 0, IsRetweet: true},
+				{ID: "5", Handle: "@c", Likes: 1, DropReason: DropLowEngagement, OwnTextLength: 0, IsQuote: true},
+			},
+		},
+	}
+
+	got := Summarize(runs)
+
+	if got.OwnTextMeasuredRuns != 1 {
+		t.Errorf("ownTextMeasuredRuns = %d, want 1", got.OwnTextMeasuredRuns)
+	}
+	if got.OwnTextUnmeasuredRuns != 0 {
+		t.Errorf("ownTextUnmeasuredRuns = %d, want 0", got.OwnTextUnmeasuredRuns)
+	}
+	if got.KeptMeasured != 4 {
+		t.Errorf("keptMeasured = %d, want 4", got.KeptMeasured)
+	}
+	if got.KeptEmptyOwnText != 1 {
+		t.Errorf("keptEmptyOwnText = %d, want 1 (the empty quote, not the retweet or the drop)", got.KeptEmptyOwnText)
+	}
+	if got.KeptThinOwnText != 1 {
+		t.Errorf("keptThinOwnText = %d, want 1 (OwnTextLength 3)", got.KeptThinOwnText)
+	}
+}
+
+// A run that is all retweets has OwnTextLength=0 everywhere and no IsQuote - it would look
+// unmeasured under a naive gate. IsRetweet alone is not enough to mark a run measured (old
+// rows already had that flag). The gate requires a positive own-text or a quote flag.
+func TestSummarizeAllRetweetRunIsUnmeasured(t *testing.T) {
+	runs := []SourceStats{
+		{
+			Timestamp: "2026-07-30T09:00:00Z", Source: "xapi", Reads: 50, Fetched: 2, Kept: 2,
+			Posts: []PostObservation{
+				{ID: "1", Handle: "@a", Likes: 200, Kept: true, OwnTextLength: 0, IsRetweet: true},
+				{ID: "2", Handle: "@a", Likes: 200, Kept: true, OwnTextLength: 0, IsRetweet: true},
+			},
+		},
+	}
+
+	got := Summarize(runs)
+
+	if got.OwnTextMeasuredRuns != 0 {
+		t.Errorf("ownTextMeasuredRuns = %d, want 0", got.OwnTextMeasuredRuns)
+	}
+	if got.KeptEmptyOwnText != 0 {
+		t.Errorf("keptEmptyOwnText = %d, want 0 on an unmeasured run", got.KeptEmptyOwnText)
+	}
+}
+
+func TestSourcesReportMentionsOwnText(t *testing.T) {
+	store := &storage.FS{Root: t.TempDir()}
+	ctx := context.Background()
+
+	run := SourceStats{
+		Timestamp: "2026-07-30T09:00:00Z", Source: "xapi", Reads: 50, Fetched: 2, Kept: 2,
+		Posts: []PostObservation{
+			{ID: "1", Handle: "@a", Likes: 200, Kept: true, OwnTextLength: 40},
+			{ID: "2", Handle: "@a", Likes: 200, Kept: true, OwnTextLength: 0, IsQuote: true},
+		},
+	}
+	data, err := json.Marshal(run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := "logs/sourcestats/" + strings.ReplaceAll(run.Timestamp, ":", "-") + "-twitter-digest.json"
+	if err := store.Put(ctx, key, data); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := SourcesReport(ctx, store, &buf, ""); err != nil {
+		t.Fatalf("SourcesReport: %v", err)
+	}
+	out := strings.ToLower(buf.String())
+	if !strings.Contains(out, "own-text") {
+		t.Errorf("report does not mention own-text:\n%s", buf.String())
+	}
+	if !strings.Contains(out, "empty") {
+		t.Errorf("report does not mention empty own-text:\n%s", buf.String())
+	}
+}
+
 func TestMedian(t *testing.T) {
 	cases := []struct {
 		in   []int
