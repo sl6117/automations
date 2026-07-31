@@ -3,6 +3,7 @@ package twitterdigest
 type Config struct {
 	MinEngagement int      `json:"minEngagement"`
 	MaxPerAuthor  int      `json:"maxPerAuthor"`
+	DigestBudget  int      `json:"digestBudget"` // global top-N after per-author cap; 0 = unlimited
 	Topics        []Topic  `json:"topics"`
 	Source        string   `json:"source"`
 	ListID        string   `json:"listId"`

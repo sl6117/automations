@@ -17,6 +17,7 @@
     "judgeModel": "claude-sonnet-4-5",
     "reviseBudget": 1,
     "maxPerAuthor": 3,
+    "digestBudget": 32,
     "deliverTo": ["telegram", "console"],
     "emailFrom": "cheese@cheddars.uk"
 }

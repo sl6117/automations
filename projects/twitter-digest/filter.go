@@ -14,7 +14,7 @@ import (
 // below the author's own posts: X reports them with zero likes and the original's repost
 // count, so their engagement is someone else's audience, not this author's.
 // also returns one observation row per fetched post, kept or dropped, in fetch order.
-func filter(tweets []sources.Tweet, minEngagement, maxPerAuthor int) ([]sources.Tweet, []PostObservation) {
+func filter(tweets []sources.Tweet, minEngagement, maxPerAuthor, digestBudget int) ([]sources.Tweet, []PostObservation) {
 	seen := make(map[string]bool)
 	eligible := make(map[string][]int)
 	obs := make([]PostObservation, 0, len(tweets))
@@ -24,10 +24,11 @@ func filter(tweets []sources.Tweet, minEngagement, maxPerAuthor int) ([]sources.
 		key := normalize(tweet.Text)
 
 		switch {
+		case !row.IsRetweet && row.OwnTextLength == 0:
+			row.DropReason = DropEmptyOwnText
 		case tweet.Likes+tweet.Reposts < minEngagement:
 			row.DropReason = DropLowEngagement
 		case seen[key]:
-			// this is a duplicate
 			row.DropReason = DropDuplicate
 		default:
 			row.Kept = true
@@ -47,13 +48,31 @@ func filter(tweets []sources.Tweet, minEngagement, maxPerAuthor int) ([]sources.
 				if x.IsRetweet != y.IsRetweet {
 					return !x.IsRetweet
 				}
-				return x.engagement() > y.engagement()
+				return x.score() > y.score()
 			})
 			for _, i := range idx[maxPerAuthor:] {
 				obs[i].Kept = false
 				obs[i].DropReason = DropPerAuthorCap
 			}
 		}
+	}
+	if digestBudget > 0 {
+		var keptIdx []int
+		for i, row := range obs {
+			if row.Kept {
+				keptIdx = append(keptIdx, i)
+			}
+		}
+		if len(keptIdx) > digestBudget {
+			sort.SliceStable(keptIdx, func(a, b int) bool {
+				return obs[keptIdx[a]].score() > obs[keptIdx[b]].score()
+			})
+			for _, i := range keptIdx[digestBudget:] {
+				obs[i].Kept = false
+				obs[i].DropReason = DropDigestBudget
+			}
+		}
+
 	}
 
 	out := make([]sources.Tweet, 0, len(obs))

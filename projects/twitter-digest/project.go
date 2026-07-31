@@ -94,7 +94,7 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 		runTime.Log.Println("[twitter-digest] WARNING: fetch hit the page cap with more content available - the oldest posts in this window were never fetched and never will be")
 	}
 	// process (no tokens) + reason (heuristic, no tokens)
-	kept, observations := filter(tweets, cfg.MinEngagement, cfg.MaxPerAuthor)
+	kept, observations := filter(tweets, cfg.MinEngagement, cfg.MaxPerAuthor, cfg.DigestBudget)
 
 	meta := FetchMeta{Source: source.Name(), Reads: sourceReads, Truncated: sourceTruncated}
 	if err := saveSourceStats(ctx, store, meta, observations); err != nil {

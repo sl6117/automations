@@ -17,6 +17,12 @@ func observationFor(t *testing.T, obs []PostObservation, id string) PostObservat
 	return PostObservation{}
 }
 
+// filterNB is the pre-digestBudget call shape: no global top-N, so older tests stay focused
+// on the floor, the duplicate check, and the per-author cap.
+func filterNB(tweets []sources.Tweet, minEngagement, maxPerAuthor int) ([]sources.Tweet, []PostObservation) {
+	return filter(tweets, minEngagement, maxPerAuthor, 0)
+}
+
 func TestFilter(t *testing.T) {
 	in := []sources.Tweet{
 		{ID: "1", Text: "Real signal about AI", Likes: 500, Reposts: 100}, // keep
@@ -25,7 +31,7 @@ func TestFilter(t *testing.T) {
 		{ID: "4", Text: "Markets update", Likes: 300, Reposts: 80},        // keep
 	}
 
-	got, _ := filter(in, 100, 0)
+	got, _ := filterNB(in, 100, 0)
 
 	if len(got) != 2 {
 		t.Fatalf("got %d tweets, want 2", len(got))
@@ -45,7 +51,7 @@ func TestFilterMaxPerAuthor(t *testing.T) {
 		{ID: "5", Handle: "@steipete", Text: "story E", Likes: 500},
 	}
 
-	got, _ := filter(in, 100, 2) // max is 2
+	got, _ := filterNB(in, 100, 2) // max is 2
 
 	wantIDs := []string{"1", "2", "3", "5"}
 
@@ -70,7 +76,7 @@ func TestFilterObservesEveryFetchedPostInOrder(t *testing.T) {
 		{ID: "4", Handle: "@b", Text: "three", Likes: 500},
 	}
 
-	_, obs := filter(in, 100, 0)
+	_, obs := filterNB(in, 100, 0)
 
 	if len(obs) != len(in) {
 		t.Fatalf("got %d observations, want %d (one per fetched post)", len(obs), len(in))
@@ -94,7 +100,7 @@ func TestFilterRecordsExclusiveDropReasons(t *testing.T) {
 		{ID: "6", Handle: "@quiet", Text: "story E", Likes: 500},
 	}
 
-	kept, obs := filter(in, 100, 2)
+	kept, obs := filterNB(in, 100, 2)
 
 	if len(kept) != 3 {
 		t.Fatalf("kept %d, want 3 (1, 2, 6)", len(kept))
@@ -127,7 +133,7 @@ func TestFilterObservationVerdictIsAlwaysDecided(t *testing.T) {
 		{ID: "2", Handle: "@a", Text: "dropped", Likes: 1},
 	}
 
-	_, obs := filter(in, 100, 0)
+	_, obs := filterNB(in, 100, 0)
 
 	for _, o := range obs {
 		if o.Kept && o.DropReason != "" {
@@ -150,7 +156,7 @@ func TestFilterObservationsCarryTheMetricsWePaidFor(t *testing.T) {
 		},
 	}
 
-	_, obs := filter(in, 100, 0)
+	_, obs := filterNB(in, 100, 0)
 
 	if len(obs) != 1 {
 		t.Fatalf("got %d observations, want 1", len(obs))
@@ -187,7 +193,7 @@ func TestFilterCapKeepsHighestEngagementNotNewest(t *testing.T) {
 		{ID: "4", Handle: "@loud", Text: "strong second", Likes: 2500, Reposts: 300},
 	}
 
-	kept, obs := filter(in, 100, 2)
+	kept, obs := filterNB(in, 100, 2)
 
 	wantIDs := []string{"3", "4"}
 	if len(kept) != len(wantIDs) {
@@ -214,7 +220,7 @@ func TestFilterCapPreservesFetchOrderOfSurvivors(t *testing.T) {
 		{ID: "3", Handle: "@a", Text: "strongest", Likes: 5000},
 	}
 
-	kept, _ := filter(in, 100, 2)
+	kept, _ := filterNB(in, 100, 2)
 
 	wantIDs := []string{"1", "3"}
 	if len(kept) != len(wantIDs) {
@@ -236,7 +242,7 @@ func TestFilterCapTieBreaksTowardNewer(t *testing.T) {
 		{ID: "3", Handle: "@a", Text: "story C", Likes: 500},
 	}
 
-	kept, _ := filter(in, 100, 2)
+	kept, _ := filterNB(in, 100, 2)
 
 	wantIDs := []string{"1", "2"}
 	if len(kept) != len(wantIDs) {
@@ -260,7 +266,7 @@ func TestFilterCapCountsOnlyEligiblePosts(t *testing.T) {
 		{ID: "5", Handle: "@a", Text: "story C", Likes: 300},
 	}
 
-	kept, obs := filter(in, 100, 3)
+	kept, obs := filterNB(in, 100, 3)
 
 	wantIDs := []string{"2", "4", "5"}
 	if len(kept) != len(wantIDs) {
@@ -290,7 +296,7 @@ func TestFilterCapRanksRetweetsBelowOriginals(t *testing.T) {
 		{ID: "3", Handle: "@elon", Text: "Neuralink update", Likes: 300, Reposts: 40},
 	}
 
-	kept, obs := filter(in, 100, 2)
+	kept, obs := filterNB(in, 100, 2)
 
 	wantIDs := []string{"2", "3"}
 	if len(kept) != len(wantIDs) {
@@ -316,7 +322,7 @@ func TestFilterCapKeepsBestRetweetWhenAuthorLacksOriginals(t *testing.T) {
 		{ID: "3", Handle: "@elon", Text: "Starship static fire complete", Likes: 400, Reposts: 60},
 	}
 
-	kept, obs := filter(in, 100, 2)
+	kept, obs := filterNB(in, 100, 2)
 
 	wantIDs := []string{"2", "3"}
 	if len(kept) != len(wantIDs) {
@@ -338,9 +344,133 @@ func TestFilterKeepsRetweetsThatClearTheFloor(t *testing.T) {
 		{ID: "1", Handle: "@a", Text: "RT @b: genuinely breaking news", Reposts: 500},
 	}
 
-	kept, _ := filter(in, 100, 0)
+	kept, _ := filterNB(in, 100, 0)
 
 	if len(kept) != 1 || kept[0].ID != "1" {
 		t.Errorf("kept = %+v, want the retweet: the cap demotes retweets, the floor does not", kept)
+	}
+}
+
+// A non-retweet with nothing left after stripping borrowed blocks, URLs and mentions has no
+// reporting in it. Engagement cannot see that; the empty-own-text exclude can. Retweets are
+// exempt: their own-text is empty by design and the model still reads the RT body.
+func TestFilterDropsEmptyOwnText(t *testing.T) {
+	in := []sources.Tweet{
+		{ID: "1", Handle: "@a", Text: "https://t.co/abc123", Likes: 500},
+		{ID: "2", Handle: "@a", Text: "😂\n[quoting @orig: a real story]", Likes: 500},
+		{ID: "3", Handle: "@a", Text: "real reporting about markets", Likes: 500},
+		{ID: "4", Handle: "@a", Text: "RT @b: genuinely breaking news", Reposts: 500},
+	}
+
+	kept, obs := filterNB(in, 100, 0)
+
+	// bare link is empty; emoji quote is thin (length 1), not empty — hard exclude is == 0 only
+	wantIDs := []string{"2", "3", "4"}
+	if len(kept) != len(wantIDs) {
+		t.Fatalf("kept %d, want %d: %+v", len(kept), len(wantIDs), kept)
+	}
+	for i, id := range wantIDs {
+		if kept[i].ID != id {
+			t.Errorf("survivor[%d] = %q, want %q", i, kept[i].ID, id)
+		}
+	}
+	if o := observationFor(t, obs, "1"); o.DropReason != DropEmptyOwnText {
+		t.Errorf("bare link: dropReason = %q, want %q", o.DropReason, DropEmptyOwnText)
+	}
+}
+
+// digestBudget is a global top-N after the per-author cap. Score is engagement per follower
+// so a mid-size account's real hit outranks a mega-account's casual like pile. Floor stays.
+func TestFilterDigestBudgetKeepsHighestScore(t *testing.T) {
+	in := []sources.Tweet{
+		{ID: "1", Handle: "@mega", Text: "mega casual", Likes: 1000, AuthorFollowers: 10_000_000},
+		{ID: "2", Handle: "@mid", Text: "mid hit", Likes: 500, AuthorFollowers: 10_000},
+		{ID: "3", Handle: "@small", Text: "small rocket", Likes: 200, AuthorFollowers: 1_000},
+	}
+
+	kept, obs := filter(in, 100, 0, 2)
+
+	// scores: mega 1000/1e7 = 0.0001; mid 500/1e4 = 0.05; small 200/1e3 = 0.2
+	wantIDs := []string{"2", "3"}
+	if len(kept) != len(wantIDs) {
+		t.Fatalf("kept %d, want %d: %+v", len(kept), len(wantIDs), kept)
+	}
+	for i, id := range wantIDs {
+		if kept[i].ID != id {
+			t.Errorf("survivor[%d] = %q, want %q (fetch order of the top-scoring)", i, kept[i].ID, id)
+		}
+	}
+	if o := observationFor(t, obs, "1"); o.DropReason != DropDigestBudget {
+		t.Errorf("mega: dropReason = %q, want %q", o.DropReason, DropDigestBudget)
+	}
+}
+
+// Same contract as the per-author cap: ranking decides who survives, not the order the
+// model reads. Reordering by score would be a silent prompt change.
+func TestFilterDigestBudgetPreservesFetchOrder(t *testing.T) {
+	in := []sources.Tweet{
+		{ID: "1", Handle: "@a", Text: "first", Likes: 200, AuthorFollowers: 1000},
+		{ID: "2", Handle: "@b", Text: "second", Likes: 500, AuthorFollowers: 1000},
+		{ID: "3", Handle: "@c", Text: "third", Likes: 300, AuthorFollowers: 1000},
+	}
+
+	kept, _ := filter(in, 100, 0, 2)
+
+	wantIDs := []string{"2", "3"} // highest scores, in fetch order
+	if len(kept) != len(wantIDs) {
+		t.Fatalf("kept %d, want %d", len(kept), len(wantIDs))
+	}
+	for i, id := range wantIDs {
+		if kept[i].ID != id {
+			t.Errorf("survivor[%d] = %q, want %q", i, kept[i].ID, id)
+		}
+	}
+}
+
+func TestFilterDigestBudgetZeroMeansUnlimited(t *testing.T) {
+	in := []sources.Tweet{
+		{ID: "1", Handle: "@a", Text: "one", Likes: 200, AuthorFollowers: 1000},
+		{ID: "2", Handle: "@b", Text: "two", Likes: 200, AuthorFollowers: 1000},
+		{ID: "3", Handle: "@c", Text: "three", Likes: 200, AuthorFollowers: 1000},
+	}
+
+	kept, _ := filter(in, 100, 0, 0)
+	if len(kept) != 3 {
+		t.Errorf("kept %d, want 3 when digestBudget is 0", len(kept))
+	}
+}
+
+// Within one author, follower count is identical, so score order equals engagement order.
+// The per-author cap must keep that behaviour when it switches to score().
+func TestFilterCapStillKeepsHighestEngagementWithScore(t *testing.T) {
+	in := []sources.Tweet{
+		{ID: "1", Handle: "@loud", Text: "thin", Likes: 100, AuthorFollowers: 50_000},
+		{ID: "2", Handle: "@loud", Text: "also thin", Likes: 110, AuthorFollowers: 50_000},
+		{ID: "3", Handle: "@loud", Text: "the story", Likes: 4000, AuthorFollowers: 50_000},
+		{ID: "4", Handle: "@loud", Text: "strong second", Likes: 2500, AuthorFollowers: 50_000},
+	}
+
+	kept, _ := filterNB(in, 100, 2)
+
+	wantIDs := []string{"3", "4"}
+	if len(kept) != len(wantIDs) {
+		t.Fatalf("kept %d, want %d", len(kept), len(wantIDs))
+	}
+	for i, id := range wantIDs {
+		if kept[i].ID != id {
+			t.Errorf("survivor[%d] = %q, want %q", i, kept[i].ID, id)
+		}
+	}
+}
+
+func TestPostObservationScoreNormalizesByFollowers(t *testing.T) {
+	mega := PostObservation{Likes: 1000, AuthorFollowers: 10_000_000}
+	mid := PostObservation{Likes: 500, AuthorFollowers: 10_000}
+	if mega.score() >= mid.score() {
+		t.Errorf("mega score %v should be below mid score %v", mega.score(), mid.score())
+	}
+	zeroFollowers := PostObservation{Likes: 100, AuthorFollowers: 0}
+	if zeroFollowers.score() != 100 {
+		t.Errorf("zero followers must degrade to divisor 1: score = %v, want 100", zeroFollowers.score())
 	}
 }

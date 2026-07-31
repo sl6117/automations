@@ -20,6 +20,8 @@ const (
 	DropLowEngagement DropReason = "low_engagement"
 	DropDuplicate     DropReason = "duplicate"
 	DropPerAuthorCap  DropReason = "per_author_cap"
+	DropEmptyOwnText  DropReason = "empty_own_text"
+	DropDigestBudget  DropReason = "digest_budget"
 )
 
 // PostObservation is the feature row for one fetched post: every metric the fetch paid
@@ -49,6 +51,19 @@ type PostObservation struct {
 
 // engagement is the signal both the low-engagement floor and the per-author cap rank on.
 func (p PostObservation) engagement() int { return p.Likes + p.Reposts }
+
+// score is engagement per follower: cold-start stand-in for a per-handle rolling median.
+// Within one author the divisor is constant, so score order equals engagement order and
+// the per-author cap keeps its current behaviour.
+// Across authors it stops a mega-account's causal posts from crowding out a mid-size account's real hit.
+// Zero/missing followers degrade to divisor 1 rather than rejecting the post.
+func (p PostObservation) score() float64 {
+	followers := p.AuthorFollowers
+	if followers < 1 {
+		followers = 1
+	}
+	return float64(p.engagement()) / float64(followers)
+}
 
 // FetchMeta is the run-level context for a set of observations: which source produced them,
 // what they cost, and whehter the page cap cut the window short.
