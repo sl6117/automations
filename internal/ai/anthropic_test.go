@@ -168,10 +168,162 @@ func TestAnthropicChat(t *testing.T) {
 	if !strings.Contains(string(gotBody.Tools[0].InputSchema), `"since"`) {
 		t.Errorf("wire input_schema = %s, want the schema passed through", gotBody.Tools[0].InputSchema)
 	}
-	if len(gotBody.Messages) != 1 || len(gotBody.Messages[0].Content) != 1 || gotBody.Messages[0].Content[0].Text != "which runs happened this week?" {
-		t.Errorf("wire messages = %+v, want the user turn as a text block", gotBody.Messages)
+	if len(gotBody.Messages) != 1 || len(gotBody.Messages[0].Content) != 1 {
+		t.Fatalf("wire messages = %+v, want one user turn with one content block", gotBody.Messages)
+	}
+	var userBlock struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(gotBody.Messages[0].Content[0], &userBlock); err != nil {
+		t.Fatalf("user content block: %v", err)
+	}
+	if userBlock.Type != "text" || userBlock.Text != "which runs happened this week?" {
+		t.Errorf("wire user block = %+v, want text asking which runs happened this week", userBlock)
 	}
 	if resp.Text != "let me check" {
 		t.Errorf("Text = %q, want concatenated text blocks", resp.Text)
+	}
+}
+
+// Anthropic web_search is a server tool: the API runs it, so the wire entry carries a
+// type + max_uses and no input_schema. Client tools keep the existing shape.
+func TestAnthropicChatWiresServerTools(t *testing.T) {
+	var gotBody map[string]json.RawMessage
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{
+			"model": "claude-haiku-4-5",
+			"stop_reason": "end_turn",
+			"content": [{"type": "text", "text": "done"}],
+			"usage": {"input_tokens": 10, "output_tokens": 5}
+		}`)
+	}))
+	defer server.Close()
+
+	client := Anthropic{APIKey: "test-key", BaseURL: server.URL}
+	_, err := client.Chat(context.Background(), ChatRequest{
+		Model: "claude-haiku-4-5",
+		Messages: []Message{
+			{Role: "user", Content: []ContentBlock{{Type: "text", Text: "search then fetch"}}},
+		},
+		Tools: []ToolDef{{
+			Name:        "fetch_url",
+			Description: "GET a URL",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"url":{"type":"string"}},"required":["url"]}`),
+		}},
+		ServerTools: []ServerTool{{
+			Type:    WebSearchToolType,
+			Name:    "web_search",
+			MaxUses: 3,
+		}},
+		MaxTokens: 200,
+	})
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+
+	var tools []map[string]any
+	if err := json.Unmarshal(gotBody["tools"], &tools); err != nil {
+		t.Fatalf("tools: %v", err)
+	}
+	if len(tools) != 2 {
+		t.Fatalf("got %d tools, want 2 (client + server)", len(tools))
+	}
+	if tools[0]["name"] != "fetch_url" || tools[0]["input_schema"] == nil {
+		t.Errorf("client tool = %#v, want fetch_url with input_schema", tools[0])
+	}
+	if tools[0]["type"] != nil {
+		t.Errorf("client tool must not force a type field: %#v", tools[0])
+	}
+	if tools[1]["type"] != WebSearchToolType || tools[1]["name"] != "web_search" {
+		t.Errorf("server tool = %#v, want type=%s name=web_search", tools[1], WebSearchToolType)
+	}
+	if tools[1]["max_uses"] != float64(3) {
+		t.Errorf("max_uses = %v, want 3", tools[1]["max_uses"])
+	}
+	if _, ok := tools[1]["input_schema"]; ok {
+		t.Errorf("server tool must not carry input_schema: %#v", tools[1])
+	}
+}
+
+// web_search_tool_result content is a nested array with encrypted_content the API requires
+// on later turns. A typed Content string cannot hold that; Raw passthrough must.
+func TestAnthropicChatPreservesServerToolResultBlocks(t *testing.T) {
+	searchResult := `{"type":"web_search_tool_result","tool_use_id":"srv_1","content":[{"type":"web_search_result","url":"https://example.com/story","title":"Story","encrypted_content":"enc-abc","page_age":"3 days ago"}]}`
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{
+			"model": "claude-haiku-4-5",
+			"stop_reason": "tool_use",
+			"content": [
+				{"type": "server_tool_use", "id": "srv_1", "name": "web_search", "input": {"query": "Clarity Act"}},
+				`+searchResult+`,
+				{"type": "tool_use", "id": "tu_1", "name": "fetch_url", "input": {"url": "https://example.com/story"}}
+			],
+			"usage": {"input_tokens": 10, "output_tokens": 5}
+		}`)
+	}))
+	defer server.Close()
+
+	client := Anthropic{APIKey: "test-key", BaseURL: server.URL}
+	resp, err := client.Chat(context.Background(), ChatRequest{
+		Model:     "claude-haiku-4-5",
+		Messages:  []Message{{Role: "user", Content: []ContentBlock{{Type: "text", Text: "corroborate"}}}},
+		MaxTokens: 200,
+	})
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if len(resp.Content) != 3 {
+		t.Fatalf("content blocks = %d, want 3", len(resp.Content))
+	}
+	if resp.Content[0].Type != "server_tool_use" || resp.Content[0].Raw == nil {
+		t.Errorf("server_tool_use = %+v, want Type set and Raw preserved", resp.Content[0])
+	}
+	if resp.Content[1].Type != "web_search_tool_result" || !strings.Contains(string(resp.Content[1].Raw), "enc-abc") {
+		t.Errorf("web_search_tool_result Raw = %s, want encrypted_content kept", resp.Content[1].Raw)
+	}
+	if resp.Content[2].Type != "tool_use" || resp.Content[2].Name != "fetch_url" {
+		t.Errorf("client tool_use = %+v", resp.Content[2])
+	}
+
+	// Round-trip: the next request must echo the server blocks byte-faithfully enough
+	// that encrypted_content survives — otherwise Anthropic rejects the continuation.
+	var gotBody struct {
+		Messages []struct {
+			Content []json.RawMessage `json:"content"`
+		} `json:"messages"`
+	}
+	roundTrip := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"model":"m","stop_reason":"end_turn","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":1}}`)
+	}))
+	defer roundTrip.Close()
+
+	client.BaseURL = roundTrip.URL
+	_, err = client.Chat(context.Background(), ChatRequest{
+		Model: "claude-haiku-4-5",
+		Messages: []Message{
+			{Role: "user", Content: []ContentBlock{{Type: "text", Text: "corroborate"}}},
+			{Role: "assistant", Content: resp.Content},
+			{Role: "user", Content: []ContentBlock{{Type: "tool_result", ToolUseID: "tu_1", Content: `{"status":200}`}}},
+		},
+		MaxTokens: 200,
+	})
+	if err != nil {
+		t.Fatalf("round-trip Chat: %v", err)
+	}
+	if len(gotBody.Messages) != 3 {
+		t.Fatalf("messages = %d, want 3", len(gotBody.Messages))
+	}
+	assistantWire := string(gotBody.Messages[1].Content[1])
+	if !strings.Contains(assistantWire, "enc-abc") || !strings.Contains(assistantWire, "web_search_tool_result") {
+		t.Errorf("assistant content[1] = %s, want web_search_tool_result with encrypted_content", assistantWire)
 	}
 }

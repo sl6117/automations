@@ -105,6 +105,68 @@ func TestRunBudgetExhaustionTruncatesWithLabel(t *testing.T) {
 	}
 }
 
+// Server-side web_search is executed by Anthropic inside Chat. The loop must still offer
+// it on the request, must not try to Call it locally, and must keep the server result
+// blocks in the conversation when the model then asks for a client tool.
+func TestRunOffersWebSearchAndOnlyCallsClientTools(t *testing.T) {
+	searchBlock := ai.ContentBlock{
+		Type: "web_search_tool_result",
+		Raw:  json.RawMessage(`{"type":"web_search_tool_result","tool_use_id":"srv_1","content":[{"type":"web_search_result","url":"https://example.com/a","encrypted_content":"enc"}]}`),
+	}
+	chat := &fakeChat{responses: []ai.ChatResponse{
+		{
+			StopReason: "tool_use",
+			Content: []ai.ContentBlock{
+				{Type: "server_tool_use", Raw: json.RawMessage(`{"type":"server_tool_use","id":"srv_1","name":"web_search","input":{"query":"q"}}`)},
+				searchBlock,
+				{Type: "tool_use", ID: "tu_1", Name: "fetch_url", Input: json.RawMessage(`{"url":"https://example.com/a"}`)},
+			},
+			Usage: ai.Usage{InputTokens: 10, OutputTokens: 5},
+		},
+		textResp(`{"question":"q","findings":["f"],"sources":["https://example.com/a"],"corroborated":true}`),
+	}}
+	tools := &fakeTools{result: `{"status":200,"body":"ok"}`}
+	res, err := Run(context.Background(), Config{
+		Client: chat, Tools: tools, Model: "m", MaxTokens: 100, MaxToolTurns: 3,
+		WebSearchMaxUses: 3,
+	}, "corroborate this")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ToolTurns != 1 {
+		t.Errorf("ToolTurns = %d, want 1 (only the client tool counts)", res.ToolTurns)
+	}
+	if len(tools.calls) != 1 || !strings.Contains(tools.calls[0], "fetch_url") {
+		t.Errorf("calls = %v, want only fetch_url — web_search is server-side", tools.calls)
+	}
+	if len(chat.requests[0].ServerTools) != 1 || chat.requests[0].ServerTools[0].MaxUses != 3 {
+		t.Errorf("first request ServerTools = %+v, want web_search max_uses=3", chat.requests[0].ServerTools)
+	}
+	// continuation must still carry the search result so citations/allowlisting can see the URL
+	assistant := chat.requests[1].Messages[1]
+	if assistant.Role != "assistant" || len(assistant.Content) != 3 {
+		t.Fatalf("continuation assistant = %+v, want the full 3-block turn", assistant)
+	}
+	if assistant.Content[1].Type != "web_search_tool_result" || !strings.Contains(string(assistant.Content[1].Raw), "enc") {
+		t.Errorf("search block lost on continuation: %+v", assistant.Content[1])
+	}
+}
+
+func TestRunWebSearchMaxUsesZeroOmitsServerTool(t *testing.T) {
+	chat := &fakeChat{responses: []ai.ChatResponse{textResp("ok")}}
+	tools := &fakeTools{}
+	_, err := Run(context.Background(), Config{
+		Client: chat, Tools: tools, Model: "m", MaxTokens: 100, MaxToolTurns: 1,
+		WebSearchMaxUses: 0,
+	}, "hi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chat.requests[0].ServerTools) != 0 {
+		t.Errorf("ServerTools = %+v, want none when WebSearchMaxUses is 0", chat.requests[0].ServerTools)
+	}
+}
+
 func TestRunInvokesOnToolCall(t *testing.T) {
 	chat := &fakeChat{responses: []ai.ChatResponse{
 		toolUseResp("tu_1", "list_runs", `{"since":"2026-07-01"}`),

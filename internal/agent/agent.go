@@ -30,6 +30,9 @@ type Config struct {
 	// MaxToolTurns bounds how many times the model may request tools before
 	// the loop forces a final answer from what was gathered (the escape hatch).
 	MaxToolTurns int
+	// WebSearchMaxUses enables Anthropic server-side web_search when > 0.
+	// The API executes the search; the loop never calls it locally.
+	WebSearchMaxUses int
 	// OnToolCall, if set, is invoked after each tool Call with the raw args and outcome.
 	// Intended for stderr/observability; must not mutate the loop.
 	OnToolCall func(name string, args json.RawMessage, result string, isError bool)
@@ -54,13 +57,21 @@ func Run(ctx context.Context, cfg Config, prompt string) (Result, error) {
 	messages := []ai.Message{{Role: "user", Content: []ai.ContentBlock{{Type: "text", Text: prompt}}}}
 
 	for {
-		resp, err := cfg.Client.Chat(ctx, ai.ChatRequest{
+		chatReq := ai.ChatRequest{
 			Model:     cfg.Model,
 			System:    cfg.System,
 			Messages:  messages,
 			Tools:     tools,
 			MaxTokens: cfg.MaxTokens,
-		})
+		}
+		if cfg.WebSearchMaxUses > 0 {
+			chatReq.ServerTools = []ai.ServerTool{{
+				Type:    ai.WebSearchToolType,
+				Name:    "web_search",
+				MaxUses: cfg.WebSearchMaxUses,
+			}}
+		}
+		resp, err := cfg.Client.Chat(ctx, chatReq)
 		if err != nil {
 			return Result{}, fmt.Errorf("chat: %w", err)
 		}
