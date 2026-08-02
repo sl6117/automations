@@ -21,7 +21,7 @@ type ResearchReport struct {
 
 func researchOne(ctx context.Context, cfg agent.Config, story, question, seeds string) (ResearchReport, agent.Result, error) {
 	prompt := fmt.Sprintf(
-		"Today is %s. This story broke within the last few days: any source dated more than a week earlier describes a DIFFERENT event, however similar it looks — do not cite it.\n\nStory under investigation:\n%s\n\n%sResearch question:\n%s\n\nStart from the links embedded in the source tweets (fetch_url follows redirects, so t.co links work). Do NOT invent or guess URLs: no search-engine pages, no made-up article slugs, no guessed tweet ids. If a seed link fails or is paywalled, you may try the same URL via web.archive.org, then stop. Reply with ONLY a JSON object matching the schema in the system prompt. If you cannot verify, set corroborated=false — that is a valid answer.",
+		"Today is %s. This story broke within the last few days: any source dated more than a week earlier describes a DIFFERENT event, however similar it looks — do not cite it.\n\nStory under investigation:\n%s\n\n%sResearch question:\n%s\n\nYou have web_search (server-side) and fetch_url. Search to discover corroborating sources, then fetch_url only URLs from seed links or search results - invented URLs are rejected by the tool. Prefer 1-2 targeted fetches. If a seed/search link is paywalled, you may try that same URL via web.archive.org, then stop. Reply with ONLY a JSON object matching the schema in the system prompt. If you cannot verify, set corroborated=false - that is a valid answer.",
 		time.Now().UTC().Format("2006-01-02"), story, seeds, question,
 	)
 	res, err := agent.Run(ctx, cfg, prompt)

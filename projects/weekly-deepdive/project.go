@@ -18,13 +18,14 @@ import (
 )
 
 const (
-	plannerModel         = "claude-haiku-4-5"
-	researcherModel      = "claude-haiku-4-5"
-	synthesizerModel     = "claude-haiku-4-5"
-	roleMaxTokens        = 1000
-	roleMaxToolTurns     = 5
-	synthesizerMaxTokens = 2500
-	maxResearchQuestions = 3 // cost guard for early dry-run
+	plannerModel               = "claude-haiku-4-5"
+	researcherModel            = "claude-haiku-4-5"
+	synthesizerModel           = "claude-haiku-4-5"
+	roleMaxTokens              = 1000
+	roleMaxToolTurns           = 5
+	synthesizerMaxTokens       = 2500
+	maxResearchQuestions       = 3 // cost guard for early dry-run
+	researcherWebSearchMaxUses = 3
 )
 
 func init() {
@@ -124,12 +125,23 @@ func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
 	rt.Log.Printf("seeded %d/%d source tweets", len(seeds), len(plan.SourceTweetIDs))
 	seedBlock := renderSeeds(seeds)
 
+	allow := agent.NewAllowlist()
+	for _, t := range seeds {
+		allow.Allow(t.URL)
+		for _, u := range urlPattern.FindAllString(t.Text, -1) {
+			allow.Allow(u)
+		}
+	}
+	researchTools := agent.GatedFetch{Inner: tools, Allow: allow}
+
 	for i, q := range questions {
 		rt.Log.Printf("research %d/%d: %s", i+1, len(questions), q)
 		report, rres, err := researchOne(ctx, agent.Config{
-			Client: chat, Tools: tools, Model: researcherModel,
+			Client: chat, Tools: researchTools, Model: researcherModel,
 			System: string(researcherSys), MaxTokens: roleMaxTokens, MaxToolTurns: roleMaxToolTurns,
-			OnToolCall: onTool,
+			WebSearchMaxUses: researcherWebSearchMaxUses,
+			FetchAllowlist:   allow,
+			OnToolCall:       onTool,
 		}, plan.Story, q, seedBlock)
 		if err != nil {
 			return fmt.Errorf("research %q: %w", q, err)
