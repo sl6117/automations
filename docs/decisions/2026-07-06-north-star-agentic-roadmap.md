@@ -108,11 +108,14 @@ not as a separate track.
 
 ## Idea shelf (approved, unscheduled)
 
-- Single-source labeling (owner 2026-07-18, cheap slice of the corroboration idea):
-  a digest bullet citing exactly one account is structurally "single-source" — label
-  it in rendering/eval, no LLM needed. Small bite, any time.
-  IN PROGRESS: this is phase 4 of the input-quality arc, generalized from a boolean label
-  to a count of distinct handles carrying the same story. Annotate only, never suppress.
+- ~~Single-source labeling~~ (owner 2026-07-18; DONE 2026-08-02, phase 4 of the
+  input-quality arc): bullets whose citations trace to one distinct voice get a
+  "[single-source]" marker at the delivery boundary only — artifact/eval/judge/rejudge
+  keep the model's unlabeled text. Counting is by status id mapped to kept posts
+  (handles get mangled by the model, ids do not); retweets attribute to the original
+  author so two RTs of one post are one voice. Annotate only, never suppress.
+  Known limit: a bullet whose citation sits on a continuation line gets no label
+  (fail-safe; only the offline heuristic renderer emits multi-line bullets).
 - Dead-letter requeue tooling (`auto queue ls` / `requeue`) — queue operations depth;
   needs a careful fresh session, touches production queue data.
 - Ranking-budget filter; video/linked-media enrichment (post-roadmap).
