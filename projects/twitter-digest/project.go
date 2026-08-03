@@ -252,6 +252,10 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 	}); err != nil {
 		return fmt.Errorf("log run: %w", err)
 	}
+	// label single-source bullets at the delivery boundary: the artifact, eval, judge, and rejudge all keep the model's unlabeled text
+	for lang, message := range digests {
+		digests[lang] = annotateSingleSource(message, kept)
+	}
 	if runTime.DryRun {
 		for _, lang := range languages {
 			runTime.Log.Println("[twitter-digest] dry-run: would have delivered ("+lang+"):", digests[lang])
