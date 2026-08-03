@@ -13,7 +13,9 @@ import (
 	"github.com/sl6117/automations/internal/agent"
 	"github.com/sl6117/automations/internal/ai"
 	"github.com/sl6117/automations/internal/config"
+	"github.com/sl6117/automations/internal/obs"
 	"github.com/sl6117/automations/internal/runner"
+	"github.com/sl6117/automations/internal/storage"
 	"github.com/sl6117/automations/pkg/sinks"
 )
 
@@ -37,7 +39,8 @@ type project struct {
 	chat  ai.ChatClient
 	tools agent.ToolSource
 	now   func() time.Time
-	sinks []sinks.Sink // nil -> selectSinks from config (dry-run: console only)
+	sinks []sinks.Sink  // nil -> selectSinks from config (dry-run: console only)
+	store storage.Store // nil -> storage.FromEnv; used only for the cost log
 }
 
 func (p *project) Name() string { return "weekly-deepdive" }
@@ -90,6 +93,8 @@ func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
 		rt.Log.Printf("tool %s args=%s result_bytes=%d isError=%v", name, string(args), len(result), isError)
 	}
 
+	var total ai.Usage // every role's tokens, for the cost log
+
 	plan, res, err := planWeek(ctx, agent.Config{
 		Client: chat, Tools: tools, Model: plannerModel,
 		System: string(plannerSys), MaxTokens: roleMaxTokens, MaxToolTurns: roleMaxToolTurns,
@@ -102,6 +107,9 @@ func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
 	if res.Truncated {
 		return fmt.Errorf("planner truncated: tool budget exhausted before a complete plan")
 	}
+
+	total.InputTokens += res.Usage.InputTokens
+	total.OutputTokens += res.Usage.OutputTokens
 
 	out, err := json.MarshalIndent(plan, "", " ")
 	if err != nil {
@@ -150,6 +158,8 @@ func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
 			rt.Log.Printf("research %d truncated (budget); accepting parsed report if any", i+1)
 		}
 		reports = append(reports, report)
+		total.InputTokens += rres.Usage.InputTokens
+		total.OutputTokens += rres.Usage.OutputTokens
 		rt.Log.Printf("research %d: corroborated=%v findings=%d sources=%d (%d turns, %d in / %d out)",
 			i+1, report.Corroborated, len(report.Findings), len(report.Sources),
 			rres.ToolTurns, rres.Usage.InputTokens, rres.Usage.OutputTokens)
@@ -165,6 +175,8 @@ func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
 	if err != nil {
 		return err
 	}
+	total.InputTokens += usage.InputTokens
+	total.OutputTokens += usage.OutputTokens
 	briefOut, err := json.MarshalIndent(brief, "", " ")
 	if err != nil {
 		return err
@@ -176,6 +188,8 @@ func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
 	if err != nil {
 		return err // API/parse breakage; Pass=false is not an error
 	}
+	total.InputTokens += edUsage.InputTokens
+	total.OutputTokens += edUsage.OutputTokens
 	edOut, err := json.MarshalIndent(edReport, "", "  ")
 	if err != nil {
 		return err
@@ -186,6 +200,8 @@ func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
 	if !edReport.Pass && cfg.ReviseBudget > 0 {
 		var rusage ai.Usage
 		brief, edReport, rusage = runReviseLoop(ctx, chat, string(synthesizerSys), string(editorSys), plan, reports, brief, edReport, cfg.ReviseBudget, rt.Log)
+		total.InputTokens += rusage.InputTokens
+		total.OutputTokens += rusage.OutputTokens
 		rt.Log.Printf("revise loop done: pass=%v (%d in / %d out tokens)", edReport.Pass, rusage.InputTokens, rusage.OutputTokens)
 	}
 	if !edReport.Pass {
@@ -206,6 +222,32 @@ func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
 			return fmt.Errorf("deliver via %s: %w", s.Name(), err)
 		}
 		rt.Log.Printf("delivered via %s", s.Name())
+	}
+
+	// cost log, last and warn-only. The brief already delivered; returning an error here
+	// would make the async Lambda invoke retry and send duplicates.
+	store := p.store
+	if store == nil {
+		selected, err := storage.FromEnv(ctx)
+		if err != nil {
+			rt.Log.Printf("cost log skipped: %v", err)
+		} else {
+			store = selected
+		}
+	}
+	if store != nil {
+		// editor tokens ride the haiku price even though the editor runs sonnet -
+		// same single-model simplification as twitter-digest's judge
+		if _, err := obs.LogRun(ctx, store, obs.Run{
+			Project:      p.Name(),
+			Model:        researcherModel,
+			DryRun:       rt.DryRun,
+			InputTokens:  total.InputTokens,
+			OutputTokens: total.OutputTokens,
+			ItemCount:    len(reports),
+		}); err != nil {
+			rt.Log.Printf("cost log write failed: %v", err)
+		}
 	}
 	return nil
 }

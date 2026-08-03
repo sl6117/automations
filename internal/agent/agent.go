@@ -33,8 +33,8 @@ type Config struct {
 	// WebSearchMaxUses enables Anthropic server-side web_search when > 0.
 	// The API executes the search; the loop never calls it locally.
 	WebSearchMaxUses int
-	// FetchAllowList when set, is filled from web_search results each turn and should
-	// also wrap Tools via GatedFetch so invetned URLs cannot be fetched.
+	// FetchAllowlist, when set, is filled from web_search results each turn and should
+	// also wrap Tools via GatedFetch so invented URLs cannot be fetched.
 	FetchAllowlist *Allowlist
 	// OnToolCall, if set, is invoked after each tool Call with the raw args and outcome.
 	// Intended for stderr/observability; must not mutate the loop.
