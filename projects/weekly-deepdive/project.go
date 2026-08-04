@@ -98,7 +98,8 @@ func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
 	plan, res, err := planWeek(ctx, agent.Config{
 		Client: chat, Tools: tools, Model: plannerModel,
 		System: string(plannerSys), MaxTokens: roleMaxTokens, MaxToolTurns: roleMaxToolTurns,
-		OnToolCall: onTool,
+		OnToolCall:  onTool,
+		PromptCache: true,
 	}, now())
 
 	if err != nil {
@@ -108,7 +109,7 @@ func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
 		return fmt.Errorf("planner truncated: tool budget exhausted before a complete plan")
 	}
 
-	total.InputTokens += res.Usage.InputTokens
+	total.InputTokens += res.Usage.TotalInputTokens()
 	total.OutputTokens += res.Usage.OutputTokens
 
 	out, err := json.MarshalIndent(plan, "", " ")
@@ -116,7 +117,7 @@ func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
 		return err
 	}
 	rt.Log.Printf("plan:\n%s", out)
-	rt.Log.Printf("(%d tool turns, %d in / %d out tokens)", res.ToolTurns, res.Usage.InputTokens, res.Usage.OutputTokens)
+	rt.Log.Printf("(%d tool turns, %d in / %d out tokens; cache write=%d read=%d)", res.ToolTurns, res.Usage.TotalInputTokens(), res.Usage.OutputTokens, res.Usage.CacheCreationInputTokens, res.Usage.CacheReadInputTokens)
 
 	questions := plan.ResearchQuestions
 
@@ -150,6 +151,7 @@ func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
 			WebSearchMaxUses: researcherWebSearchMaxUses,
 			FetchAllowlist:   allow,
 			OnToolCall:       onTool,
+			PromptCache:      true,
 		}, plan.Story, q, seedBlock)
 		if err != nil {
 			return fmt.Errorf("research %q: %w", q, err)
@@ -158,7 +160,7 @@ func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
 			rt.Log.Printf("research %d truncated (budget); accepting parsed report if any", i+1)
 		}
 		reports = append(reports, report)
-		total.InputTokens += rres.Usage.InputTokens
+		total.InputTokens += rres.Usage.TotalInputTokens()
 		total.OutputTokens += rres.Usage.OutputTokens
 		rt.Log.Printf("research %d: corroborated=%v findings=%d sources=%d (%d turns, %d in / %d out)",
 			i+1, report.Corroborated, len(report.Findings), len(report.Sources),

@@ -60,6 +60,11 @@ type ChatRequest struct {
 	ServerTools []ServerTool
 	MaxTokens   int
 	Temperature float64
+	// PromptCache enables Anthropic automatic prompt caching (top-level cache_control)
+	// The API advances the breakpoint as the conversation grows
+	// the win for multi-turn agent loops. Haiku 4.5 needs >= 4096
+	// tokens before a write sticks; below that, cache_* usage fields stay 0.
+	PromptCache bool
 }
 
 // ChatResponse is the model's reply. StopReason "tool_use" means the
@@ -102,21 +107,29 @@ type anthropicWireTool struct {
 	InputSchema json.RawMessage `json:"input_schema,omitempty"`
 	MaxUses     int             `json:"max_uses,omitempty"`
 }
-type anthropicChatRequest struct {
-	Model       string                 `json:"model"`
-	MaxTokens   int                    `json:"max_tokens"`
-	Temperature float64                `json:"temperature"`
-	System      string                 `json:"system,omitempty"`
-	Messages    []anthropicWireMessage `json:"messages"`
-	Tools       []anthropicWireTool    `json:"tools,omitempty"`
+
+type anthropicCacheControl struct {
+	Type string `json:"type"`
 }
+type anthropicChatRequest struct {
+	Model        string                 `json:"model"`
+	MaxTokens    int                    `json:"max_tokens"`
+	Temperature  float64                `json:"temperature"`
+	System       string                 `json:"system,omitempty"`
+	Messages     []anthropicWireMessage `json:"messages"`
+	Tools        []anthropicWireTool    `json:"tools,omitempty"`
+	CacheControl *anthropicCacheControl `json:"cache_control,omitempty"`
+}
+
 type anthropicChatResponse struct {
 	Model      string            `json:"model"`
 	StopReason string            `json:"stop_reason"`
 	Content    []json.RawMessage `json:"content"`
 	Usage      struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
+		InputTokens              int `json:"input_tokens"`
+		OutputTokens             int `json:"output_tokens"`
+		CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+		CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 	} `json:"usage"`
 }
 
@@ -153,6 +166,9 @@ func (a Anthropic) Chat(ctx context.Context, req ChatRequest) (ChatResponse, err
 	for _, t := range req.ServerTools {
 		wire.Tools = append(wire.Tools, anthropicWireTool{Type: t.Type, Name: t.Name, MaxUses: t.MaxUses})
 	}
+	if req.PromptCache {
+		wire.CacheControl = &anthropicCacheControl{Type: "ephemeral"}
+	}
 	body, err := json.Marshal(wire)
 	if err != nil {
 		return ChatResponse{}, fmt.Errorf("marshal chat request: %w", err)
@@ -187,7 +203,10 @@ func (a Anthropic) Chat(ctx context.Context, req ChatRequest) (ChatResponse, err
 	out := ChatResponse{
 		StopReason: parsed.StopReason,
 		Model:      parsed.Model,
-		Usage:      Usage{InputTokens: parsed.Usage.InputTokens, OutputTokens: parsed.Usage.OutputTokens},
+		Usage: Usage{InputTokens: parsed.Usage.InputTokens, OutputTokens: parsed.Usage.OutputTokens,
+			CacheCreationInputTokens: parsed.Usage.CacheCreationInputTokens,
+			CacheReadInputTokens:     parsed.Usage.CacheReadInputTokens,
+		},
 	}
 	for _, raw := range parsed.Content {
 		block, err := contentBlockFromWire(raw)

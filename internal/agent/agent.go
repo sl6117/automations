@@ -39,6 +39,9 @@ type Config struct {
 	// OnToolCall, if set, is invoked after each tool Call with the raw args and outcome.
 	// Intended for stderr/observability; must not mutate the loop.
 	OnToolCall func(name string, args json.RawMessage, result string, isError bool)
+	// PromptCache asks the Chat client to enable Anthropic automatic prompt caching on every turn.
+	// Off by default; deepdive agent roles opt in.
+	PromptCache bool
 }
 
 // Result always carries usable text; Truncated marks answers the budget cut short
@@ -61,11 +64,12 @@ func Run(ctx context.Context, cfg Config, prompt string) (Result, error) {
 
 	for {
 		chatReq := ai.ChatRequest{
-			Model:     cfg.Model,
-			System:    cfg.System,
-			Messages:  messages,
-			Tools:     tools,
-			MaxTokens: cfg.MaxTokens,
+			Model:       cfg.Model,
+			System:      cfg.System,
+			Messages:    messages,
+			Tools:       tools,
+			MaxTokens:   cfg.MaxTokens,
+			PromptCache: cfg.PromptCache,
 		}
 		if cfg.WebSearchMaxUses > 0 {
 			chatReq.ServerTools = []ai.ServerTool{{
@@ -80,6 +84,8 @@ func Run(ctx context.Context, cfg Config, prompt string) (Result, error) {
 		}
 		res.Usage.InputTokens += resp.Usage.InputTokens
 		res.Usage.OutputTokens += resp.Usage.OutputTokens
+		res.Usage.CacheCreationInputTokens += resp.Usage.CacheCreationInputTokens
+		res.Usage.CacheReadInputTokens += resp.Usage.CacheReadInputTokens
 
 		// the FULL assistant content goes back into the conversation -
 		// dropping a block would orphan its tool_use_id (API rejects that)
@@ -138,10 +144,11 @@ func finalAnswer(ctx context.Context, cfg Config, messages []ai.Message, pending
 	messages = append(messages, ai.Message{Role: "user", Content: blocks})
 
 	resp, err := cfg.Client.Chat(ctx, ai.ChatRequest{
-		Model:     cfg.Model,
-		System:    cfg.System,
-		Messages:  messages,
-		MaxTokens: cfg.MaxTokens,
+		Model:       cfg.Model,
+		System:      cfg.System,
+		Messages:    messages,
+		MaxTokens:   cfg.MaxTokens,
+		PromptCache: cfg.PromptCache,
 	})
 	if err != nil {
 		return Result{}, fmt.Errorf("final answer: %w", err)

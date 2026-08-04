@@ -12,8 +12,16 @@ const StopMaxTokens = "max_tokens"
 
 // reports tokens consumed by a single completion (cost logging)
 type Usage struct {
-	InputTokens  int
-	OutputTokens int
+	InputTokens              int
+	OutputTokens             int
+	CacheCreationInputTokens int // written this call (~1.25x input price)
+	CacheReadInputTokens     int // served from cache (~0.1x input price)
+}
+
+// TotalInputTokens is everything the model processed as input.
+// With prompt caching, InputTokens alone is only the uncached suffix.
+func (u Usage) TotalInputTokens() int {
+	return u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
 }
 
 // Request is a single completion request

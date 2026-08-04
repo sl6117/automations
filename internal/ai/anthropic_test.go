@@ -327,3 +327,90 @@ func TestAnthropicChatPreservesServerToolResultBlocks(t *testing.T) {
 		t.Errorf("assistant content[1] = %s, want web_search_tool_result with encrypted_content", assistantWire)
 	}
 }
+
+// Top-level cache_control enables Anthropic automatic prompt caching: the API
+// places a breakpoint on the last cacheable block and advances it as the
+// multi-turn transcript grows. Haiku 4.5 needs ≥4096 tokens before a write
+// sticks; below that the request still succeeds with zeros in the cache fields.
+func TestAnthropicChatWiresPromptCache(t *testing.T) {
+	var gotBody map[string]json.RawMessage
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{
+			"model": "claude-haiku-4-5",
+			"stop_reason": "end_turn",
+			"content": [{"type": "text", "text": "ok"}],
+			"usage": {
+				"input_tokens": 40,
+				"output_tokens": 5,
+				"cache_creation_input_tokens": 4200,
+				"cache_read_input_tokens": 0
+			}
+		}`)
+	}))
+	defer server.Close()
+
+	client := Anthropic{APIKey: "test-key", BaseURL: server.URL}
+	resp, err := client.Chat(context.Background(), ChatRequest{
+		Model:  "claude-haiku-4-5",
+		System: "stable system prompt",
+		Messages: []Message{
+			{Role: "user", Content: []ContentBlock{{Type: "text", Text: "hello"}}},
+		},
+		PromptCache: true,
+		MaxTokens:   100,
+	})
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+
+	var cc map[string]any
+	if err := json.Unmarshal(gotBody["cache_control"], &cc); err != nil {
+		t.Fatalf("cache_control missing or invalid: %v (body keys %v)", err, keysOf(gotBody))
+	}
+	if cc["type"] != "ephemeral" {
+		t.Errorf("cache_control = %#v, want type=ephemeral", cc)
+	}
+	if resp.Usage.InputTokens != 40 || resp.Usage.CacheCreationInputTokens != 4200 || resp.Usage.CacheReadInputTokens != 0 {
+		t.Errorf("Usage = %+v, want uncached=40 creation=4200 read=0", resp.Usage)
+	}
+	if resp.Usage.TotalInputTokens() != 4240 {
+		t.Errorf("TotalInputTokens() = %d, want 4240", resp.Usage.TotalInputTokens())
+	}
+}
+
+func TestAnthropicChatOmitsPromptCacheWhenOff(t *testing.T) {
+	var gotBody map[string]json.RawMessage
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"model":"m","stop_reason":"end_turn","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":1}}`)
+	}))
+	defer server.Close()
+
+	client := Anthropic{APIKey: "test-key", BaseURL: server.URL}
+	_, err := client.Chat(context.Background(), ChatRequest{
+		Model: "claude-haiku-4-5",
+		Messages: []Message{
+			{Role: "user", Content: []ContentBlock{{Type: "text", Text: "hi"}}},
+		},
+		MaxTokens: 50,
+	})
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if _, ok := gotBody["cache_control"]; ok {
+		t.Errorf("cache_control present when PromptCache is false: %s", gotBody["cache_control"])
+	}
+}
+
+func keysOf(m map[string]json.RawMessage) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}

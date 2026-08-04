@@ -167,6 +167,78 @@ func TestRunWebSearchMaxUsesZeroOmitsServerTool(t *testing.T) {
 	}
 }
 
+// PromptCache is opt-in: the agent loop forwards it on every Chat turn so
+// Anthropic automatic caching can advance the breakpoint as the transcript grows.
+func TestRunForwardsPromptCache(t *testing.T) {
+	chat := &fakeChat{responses: []ai.ChatResponse{
+		toolUseResp("tu_1", "list_runs", `{}`),
+		textResp("done"),
+	}}
+	tools := &fakeTools{result: `{}`}
+	res, err := Run(context.Background(), Config{
+		Client: chat, Tools: tools, Model: "m", MaxTokens: 100, MaxToolTurns: 3,
+		PromptCache: true,
+	}, "which runs?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chat.requests) != 2 {
+		t.Fatalf("requests = %d, want 2", len(chat.requests))
+	}
+	for i, req := range chat.requests {
+		if !req.PromptCache {
+			t.Errorf("request[%d].PromptCache = false, want true on every turn", i)
+		}
+	}
+	// cache fields must accumulate across turns (scripted zeros here still prove the path)
+	if res.Usage.CacheCreationInputTokens != 0 || res.Usage.CacheReadInputTokens != 0 {
+		t.Errorf("usage cache fields = %+v", res.Usage)
+	}
+}
+
+func TestRunOmitsPromptCacheWhenOff(t *testing.T) {
+	chat := &fakeChat{responses: []ai.ChatResponse{textResp("ok")}}
+	tools := &fakeTools{}
+	_, err := Run(context.Background(), Config{
+		Client: chat, Tools: tools, Model: "m", MaxTokens: 100, MaxToolTurns: 1,
+	}, "hi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if chat.requests[0].PromptCache {
+		t.Error("PromptCache = true, want false by default")
+	}
+}
+
+func TestRunSumsCacheTokensAcrossTurns(t *testing.T) {
+	chat := &fakeChat{responses: []ai.ChatResponse{
+		{
+			StopReason: "tool_use",
+			Content:    []ai.ContentBlock{{Type: "tool_use", ID: "tu_1", Name: "list_runs", Input: json.RawMessage(`{}`)}},
+			Usage:      ai.Usage{InputTokens: 10, OutputTokens: 5, CacheCreationInputTokens: 4000},
+		},
+		{
+			StopReason: "end_turn",
+			Content:    []ai.ContentBlock{{Type: "text", Text: "ok"}},
+			Usage:      ai.Usage{InputTokens: 20, OutputTokens: 5, CacheReadInputTokens: 4010},
+		},
+	}}
+	tools := &fakeTools{result: `{}`}
+	res, err := Run(context.Background(), Config{
+		Client: chat, Tools: tools, Model: "m", MaxTokens: 100, MaxToolTurns: 3,
+		PromptCache: true,
+	}, "which runs?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Usage.InputTokens != 30 || res.Usage.CacheCreationInputTokens != 4000 || res.Usage.CacheReadInputTokens != 4010 {
+		t.Errorf("usage = %+v, want in=30 creation=4000 read=4010", res.Usage)
+	}
+	if res.Usage.TotalInputTokens() != 8040 {
+		t.Errorf("TotalInputTokens() = %d, want 8040", res.Usage.TotalInputTokens())
+	}
+}
+
 func TestRunInvokesOnToolCall(t *testing.T) {
 	chat := &fakeChat{responses: []ai.ChatResponse{
 		toolUseResp("tu_1", "list_runs", `{"since":"2026-07-01"}`),
