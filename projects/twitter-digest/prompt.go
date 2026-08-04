@@ -11,28 +11,32 @@ import (
 	"github.com/sl6117/automations/pkg/sources"
 )
 
-// // buildPrompt loads prompts/digest.md and fills in the date, topics,
-// // and a slimmed-down JSON of the kept tweets. Only the fields the model needs are
-// // sent, to keep the prompt (and token cost) small.
-func buildPrompt(projectDir string, topics []Topic, tweets []sources.Tweet, language string) (string, error) {
+// // buildPrompt loads prompts/digest.md into a stable system prefix (date, topics, tweets)
+// // and per-languate user directive. The system prefix is identical across EN/KO/RU
+// // so Anthropic prompt caching can hit within one run.
+func buildPrompt(projectDir string, topics []Topic, tweets []sources.Tweet, language string) (system, user string, err error) {
 	tmpl, err := os.ReadFile(filepath.Join(projectDir, "prompts", "digest.md"))
 
 	if err != nil {
-		return "", fmt.Errorf("read prompt: %w", err)
+		return "", "", fmt.Errorf("read prompt: %w", err)
 	}
 
 	tweetsJSON, err := slimTweets(tweets)
 	if err != nil {
-		return "", fmt.Errorf("marshal tweets: %w", err)
+		return "", "", fmt.Errorf("marshal tweets: %w", err)
 	}
 
-	out := string(tmpl)
-	out = strings.ReplaceAll(out, "{{DATE}}", time.Now().Format("2006-01-02"))
-	out = strings.ReplaceAll(out, "{{LANGUAGE}}", language)
-	out = strings.ReplaceAll(out, "{{TOPICS}}", topicList(topics))
-	out = strings.ReplaceAll(out, "{{TWEETS_JSON}}", string(tweetsJSON))
+	system = string(tmpl)
+	system = strings.ReplaceAll(system, "{{DATE}}", time.Now().Format("2006-01-02"))
+	system = strings.ReplaceAll(system, "{{TOPICS}}", topicList(topics))
+	system = strings.ReplaceAll(system, "{{TWEETS_JSON}}", string(tweetsJSON))
 
-	return out, nil
+	user = fmt.Sprintf(
+		"Write every summary in %s, regardless of the post's language. Keep proper nouns as commonly romanized.",
+		language,
+	)
+
+	return system, user, nil
 }
 
 // slimTweets renders the model-facing view of tweets: only the fields

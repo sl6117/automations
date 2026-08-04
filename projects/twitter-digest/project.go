@@ -172,6 +172,8 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 		digests[lang] = message
 		total.InputTokens += usage.InputTokens
 		total.OutputTokens += usage.OutputTokens
+		total.CacheCreationInputTokens += usage.CacheCreationInputTokens
+		total.CacheReadInputTokens += usage.CacheReadInputTokens
 		failures, coverage := evalDigest(message, kept, cfg.Topics)
 		runTime.Log.Printf("[twitter-digest] eval (%s): %s", lang, coverage)
 		for _, f := range failures {
@@ -242,13 +244,15 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 	}
 
 	if _, err := obs.LogRun(context.Background(), store, obs.Run{
-		Project:      p.Name(),
-		Model:        cfg.Model,
-		DryRun:       runTime.DryRun,
-		InputTokens:  total.InputTokens,
-		OutputTokens: total.OutputTokens,
-		ItemCount:    len(kept),
-		SourceReads:  sourceReads,
+		Project:                  p.Name(),
+		Model:                    cfg.Model,
+		DryRun:                   runTime.DryRun,
+		InputTokens:              total.InputTokens,
+		OutputTokens:             total.OutputTokens,
+		CacheCreationInputTokens: total.CacheCreationInputTokens,
+		CacheReadInputTokens:     total.CacheReadInputTokens,
+		ItemCount:                len(kept),
+		SourceReads:              sourceReads,
 	}); err != nil {
 		return fmt.Errorf("log run: %w", err)
 	}
@@ -419,21 +423,23 @@ func (p *project) digest(ctx context.Context, runTime *runner.Runtime, cfg Confi
 		}
 		return render(summarize(kept, cfg.Topics)), ai.Usage{}, false, nil
 	}
-	prompt, err := buildPrompt(runTime.ProjectDir, cfg.Topics, kept, language)
+	system, prompt, err := buildPrompt(runTime.ProjectDir, cfg.Topics, kept, language)
 	if err != nil {
 		return "", ai.Usage{}, false, err
 	}
 
 	resp, err := client.Complete(ctx, ai.Request{
 		Model:       cfg.Model,
+		System:      system,
 		Prompt:      prompt,
 		Temperature: digestTemperature,
 		MaxTokens:   digestMaxTokens,
+		PromptCache: true,
 	})
 	if err != nil {
 		return "", ai.Usage{}, false, fmt.Errorf("summarize via %s: %w", cfg.Model, err)
 	}
-	runTime.Log.Printf("[twitter-digest] model=%s tokens in=%d out=%d", resp.Model, resp.Usage.InputTokens, resp.Usage.OutputTokens)
+	runTime.Log.Printf("[twitter-digest] model=%s tokens in=%d out=%d cache write=%d read=%d", resp.Model, resp.Usage.InputTokens, resp.Usage.OutputTokens, resp.Usage.CacheCreationInputTokens, resp.Usage.CacheReadInputTokens)
 
 	truncated := resp.StopReason == ai.StopMaxTokens
 	if truncated {

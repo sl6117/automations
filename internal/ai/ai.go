@@ -31,6 +31,9 @@ type Request struct {
 	Prompt      string // user prompt
 	MaxTokens   int
 	Temperature float64
+	// PromptCache asks Anthropic Complete to put cache_control on the system
+	// block when System is non-empty. Off by default; OpenRouter ignores it.
+	PromptCache bool
 }
 
 // Response is the model's reply plus accounting metadata.

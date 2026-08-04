@@ -27,11 +27,16 @@ type anthropicMessage struct {
 	Content string `json:"content"`
 }
 
+type anthropicSystemBlock struct {
+	Type         string                 `json:"type"`
+	Text         string                 `json:"text"`
+	CacheControl *anthropicCacheControl `json:"cache_control,omitempty"`
+}
 type anthropicRequest struct {
 	Model       string             `json:"model"`
 	MaxTokens   int                `json:"max_tokens"`
 	Temperature float64            `json:"temperature"`
-	System      string             `json:"system,omitempty"`
+	System      any                `json:"system,omitempty"`
 	Messages    []anthropicMessage `json:"messages"`
 }
 
@@ -43,8 +48,10 @@ type anthropicResponse struct {
 		Text string `json:"text"`
 	} `json:"content"`
 	Usage struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
+		InputTokens              int `json:"input_tokens"`
+		OutputTokens             int `json:"output_tokens"`
+		CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+		CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 	} `json:"usage"`
 }
 
@@ -59,11 +66,24 @@ func (a Anthropic) Complete(ctx context.Context, req Request) (Response, error) 
 		httpClient = &http.Client{Timeout: 60 * time.Second}
 	}
 
+	var system any
+	if req.System != "" {
+		if req.PromptCache {
+			system = []anthropicSystemBlock{{
+				Type:         "text",
+				Text:         req.System,
+				CacheControl: &anthropicCacheControl{Type: "ephemeral"},
+			}}
+		} else {
+			system = req.System
+		}
+	}
+
 	body, err := json.Marshal(anthropicRequest{
 		Model:       req.Model,
 		MaxTokens:   req.MaxTokens,
 		Temperature: req.Temperature,
-		System:      req.System,
+		System:      system,
 		Messages: []anthropicMessage{
 			{Role: "user", Content: req.Prompt},
 		},
@@ -117,8 +137,10 @@ func (a Anthropic) Complete(ctx context.Context, req Request) (Response, error) 
 		Model:      parsedResponse.Model,
 		StopReason: parsedResponse.StopReason,
 		Usage: Usage{
-			InputTokens:  parsedResponse.Usage.InputTokens,
-			OutputTokens: parsedResponse.Usage.OutputTokens,
+			InputTokens:              parsedResponse.Usage.InputTokens,
+			OutputTokens:             parsedResponse.Usage.OutputTokens,
+			CacheCreationInputTokens: parsedResponse.Usage.CacheCreationInputTokens,
+			CacheReadInputTokens:     parsedResponse.Usage.CacheReadInputTokens,
 		},
 	}, nil
 }
