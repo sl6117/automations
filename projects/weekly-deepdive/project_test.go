@@ -46,6 +46,21 @@ func textResponse(text string, in, out int) ai.ChatResponse {
 	}
 }
 
+// toolSubmitResponse is a forced-tool reply: stop_reason tool_use with one
+// tool_use block. Used for the editor (and later other schema-forced roles).
+func toolSubmitResponse(name, input string, in, out int) ai.ChatResponse {
+	return ai.ChatResponse{
+		StopReason: "tool_use",
+		Content: []ai.ContentBlock{{
+			Type:  "tool_use",
+			ID:    "tu_1",
+			Name:  name,
+			Input: json.RawMessage(input),
+		}},
+		Usage: ai.Usage{InputTokens: in, OutputTokens: out},
+	}
+}
+
 // pipelineTools serves the digest-archive reads seedTweets makes. No agent
 // in the script ever requests a tool call, so Call outside these two names fails.
 type pipelineTools struct{}
@@ -101,7 +116,7 @@ func pipelineScript() []ai.ChatResponse {
 		textResponse(plan, 100, 10),
 		textResponse(report, 200, 20),
 		textResponse(brief, 300, 30),
-		textResponse(editor, 400, 40),
+		toolSubmitResponse(editorSubmitTool, editor, 400, 40),
 	}
 }
 
@@ -172,7 +187,7 @@ func TestRunLogsCostForWholePipeline(t *testing.T) {
 // failing editor verdict, then the revise pass (re-synthesize + re-edit).
 func TestRunCostIncludesReviseLoopTokens(t *testing.T) {
 	script := pipelineScript()
-	script[3] = textResponse(`{"pass": false, "failures": ["claim missing hedge label"]}`, 400, 40)
+	script[3] = toolSubmitResponse(editorSubmitTool, `{"pass": false, "failures": ["claim missing hedge label"]}`, 400, 40)
 	revised := `{
 		"title": "FIFA's extra year, hedged",
 		"summary": "The date change is confirmed by the linked article.",
@@ -180,7 +195,7 @@ func TestRunCostIncludesReviseLoopTokens(t *testing.T) {
 	}`
 	script = append(script,
 		textResponse(revised, 500, 50),
-		textResponse(`{"pass": true, "failures": []}`, 600, 60),
+		toolSubmitResponse(editorSubmitTool, `{"pass": true, "failures": []}`, 600, 60),
 	)
 
 	store := &storage.FS{Root: t.TempDir()}

@@ -7,6 +7,6 @@ You receive a Brief and ResearchReports. Your job is CONTRACT COMPLIANCE, not tr
 - A then, heavily headged brief with empty research is a PASS if hedges are present.
 - Only report high-prevision fails (clear laundering / missing required hedge). Don't fail on style, length, or "it could have been better."
 
-Reply with ONLY a JSON object:
+Submit your verdict by calling the submit_editor_report tool:
 - pass (bool)
 - failures (array of strings): empty iff pass is true; each entry names one concrete contract break

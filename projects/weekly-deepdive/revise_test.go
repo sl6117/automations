@@ -2,6 +2,7 @@ package weeklydeepdive
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -11,6 +12,8 @@ import (
 )
 
 // scriptedChat returns canned replies in order; fails the test if over-called.
+// When the request forces a tool (editor structured output), the reply string is
+// wrapped as that tool's input so editBrief can parse tool_use.input.
 type scriptedChat struct {
 	t       *testing.T
 	replies []string
@@ -23,7 +26,22 @@ func (s *scriptedChat) Chat(ctx context.Context, req ai.ChatRequest) (ai.ChatRes
 	}
 	reply := s.replies[s.calls]
 	s.calls++
-	return ai.ChatResponse{StopReason: "end_turn", Text: reply}, nil
+	if req.ToolChoice != nil && req.ToolChoice.Type == "tool" {
+		return ai.ChatResponse{
+			StopReason: "tool_use",
+			Content: []ai.ContentBlock{{
+				Type:  "tool_use",
+				ID:    "tu_script",
+				Name:  req.ToolChoice.Name,
+				Input: json.RawMessage(reply),
+			}},
+		}, nil
+	}
+	return ai.ChatResponse{
+		StopReason: "end_turn",
+		Text:       reply,
+		Content:    []ai.ContentBlock{{Type: "text", Text: reply}},
+	}, nil
 }
 
 type errChat struct{ calls int }

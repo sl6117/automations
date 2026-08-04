@@ -65,6 +65,16 @@ type ChatRequest struct {
 	// the win for multi-turn agent loops. Haiku 4.5 needs >= 4096
 	// tokens before a write sticks; below that, cache_* usage fields stay 0.
 	PromptCache bool
+	// ToolChoice, when set, is sent as Anthropic tool_choice.
+	// Type "tool" + Name forces that client tool (structured-output pattern).
+	// Nil means the API default (auto).
+	ToolChoice *ToolChoice
+}
+
+// ToolChoice guides or forces which tool the model calls.
+type ToolChoice struct {
+	Type string // "auto", "any", or "tool"
+	Name string // required when Type == "tool"
 }
 
 // ChatResponse is the model's reply. StopReason "tool_use" means the
@@ -119,6 +129,12 @@ type anthropicChatRequest struct {
 	Messages     []anthropicWireMessage `json:"messages"`
 	Tools        []anthropicWireTool    `json:"tools,omitempty"`
 	CacheControl *anthropicCacheControl `json:"cache_control,omitempty"`
+	ToolChoice   *anthropicToolChoice   `json:"tool_choice,omitempty"`
+}
+
+type anthropicToolChoice struct {
+	Type string `json:"type"`
+	Name string `json:"name,omitempty"`
 }
 
 type anthropicChatResponse struct {
@@ -168,6 +184,10 @@ func (a Anthropic) Chat(ctx context.Context, req ChatRequest) (ChatResponse, err
 	}
 	if req.PromptCache {
 		wire.CacheControl = &anthropicCacheControl{Type: "ephemeral"}
+	}
+
+	if req.ToolChoice != nil {
+		wire.ToolChoice = &anthropicToolChoice{Type: req.ToolChoice.Type, Name: req.ToolChoice.Name}
 	}
 	body, err := json.Marshal(wire)
 	if err != nil {

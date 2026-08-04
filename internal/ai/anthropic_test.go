@@ -407,6 +407,87 @@ func TestAnthropicChatOmitsPromptCacheWhenOff(t *testing.T) {
 	}
 }
 
+// tool_choice type=tool forces a specific client tool — the structured-output
+// pattern: the model must call that tool, and tool_use.input is the contract.
+func TestAnthropicChatWiresToolChoice(t *testing.T) {
+	var gotBody map[string]json.RawMessage
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{
+			"model": "claude-sonnet-4-5",
+			"stop_reason": "tool_use",
+			"content": [{
+				"type": "tool_use",
+				"id": "tu_1",
+				"name": "submit_editor_report",
+				"input": {"pass": true, "failures": []}
+			}],
+			"usage": {"input_tokens": 20, "output_tokens": 8}
+		}`)
+	}))
+	defer server.Close()
+
+	client := Anthropic{APIKey: "test-key", BaseURL: server.URL}
+	resp, err := client.Chat(context.Background(), ChatRequest{
+		Model: "claude-sonnet-4-5",
+		Messages: []Message{
+			{Role: "user", Content: []ContentBlock{{Type: "text", Text: "judge this brief"}}},
+		},
+		Tools: []ToolDef{{
+			Name:        "submit_editor_report",
+			Description: "Submit the editor verdict",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"pass":{"type":"boolean"},"failures":{"type":"array","items":{"type":"string"}}},"required":["pass","failures"]}`),
+		}},
+		ToolChoice: &ToolChoice{Type: "tool", Name: "submit_editor_report"},
+		MaxTokens:  200,
+	})
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+
+	var tc map[string]any
+	if err := json.Unmarshal(gotBody["tool_choice"], &tc); err != nil {
+		t.Fatalf("tool_choice missing or invalid: %v (body keys %v)", err, keysOf(gotBody))
+	}
+	if tc["type"] != "tool" || tc["name"] != "submit_editor_report" {
+		t.Errorf("tool_choice = %#v, want type=tool name=submit_editor_report", tc)
+	}
+	if resp.StopReason != "tool_use" {
+		t.Errorf("StopReason = %q, want tool_use", resp.StopReason)
+	}
+	if len(resp.Content) != 1 || resp.Content[0].Name != "submit_editor_report" {
+		t.Errorf("Content = %+v, want one submit_editor_report tool_use", resp.Content)
+	}
+}
+
+func TestAnthropicChatOmitsToolChoiceWhenNil(t *testing.T) {
+	var gotBody map[string]json.RawMessage
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"model":"m","stop_reason":"end_turn","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":1}}`)
+	}))
+	defer server.Close()
+
+	client := Anthropic{APIKey: "test-key", BaseURL: server.URL}
+	_, err := client.Chat(context.Background(), ChatRequest{
+		Model: "claude-haiku-4-5",
+		Messages: []Message{
+			{Role: "user", Content: []ContentBlock{{Type: "text", Text: "hi"}}},
+		},
+		MaxTokens: 50,
+	})
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if _, ok := gotBody["tool_choice"]; ok {
+		t.Errorf("tool_choice present when ToolChoice is nil: %s", gotBody["tool_choice"])
+	}
+}
+
 func keysOf(m map[string]json.RawMessage) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
