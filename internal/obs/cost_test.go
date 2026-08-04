@@ -3,6 +3,7 @@ package obs
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"strings"
 	"testing"
 
@@ -10,11 +11,51 @@ import (
 )
 
 func TestEstimateCost(t *testing.T) {
-	if got := EstimateCost("anthropic/claude-haiku-4.5", 1_000_000, 1_000_000); got != 6.0 {
+	// haiku: $1/MTok in, $5/MTok out — no cache
+	if got := EstimateCost("anthropic/claude-haiku-4.5", 1_000_000, 1_000_000, 0, 0); got != 6.0 {
 		t.Errorf("cost = %v, want 6.0", got)
 	}
-	if got := EstimateCost("unknown/model", 1000, 1000); got != 0 {
+	if got := EstimateCost("unknown/model", 1000, 1000, 0, 0); got != 0 {
 		t.Errorf("unknown model cost = %v, want 0", got)
+	}
+}
+
+// 5-minute ephemeral cache: writes 1.25x base input, reads 0.1x. Output unchanged.
+func TestEstimateCostPricesCacheTokens(t *testing.T) {
+	// 1M uncached in ($1) + 1M cache write ($1.25) + 1M cache read ($0.10) + 0 out
+	got := EstimateCost("claude-haiku-4-5", 1_000_000, 0, 1_000_000, 1_000_000)
+	want := 1.0 + 1.25 + 0.10
+	if math.Abs(got-want) > 1e-9 {
+		t.Errorf("cost = %v, want %v", got, want)
+	}
+	// zero cache args must match the pre-caching formula
+	if got := EstimateCost("claude-haiku-4-5", 1_000_000, 1_000_000, 0, 0); got != 6.0 {
+		t.Errorf("no-cache cost = %v, want 6.0", got)
+	}
+}
+
+func TestLogRunPricesCacheFields(t *testing.T) {
+	ctx := context.Background()
+	store := &storage.FS{Root: t.TempDir()}
+
+	rec, err := LogRun(ctx, store, Run{
+		Project:                  "weekly-deepdive",
+		Model:                    "claude-haiku-4-5",
+		InputTokens:              100_000, // uncached tail
+		CacheCreationInputTokens: 400_000,
+		CacheReadInputTokens:     500_000,
+		OutputTokens:             0,
+	})
+	if err != nil {
+		t.Fatalf("LogRun: %v", err)
+	}
+	// 0.1 + 0.4*1.25 + 0.5*0.1 = 0.1 + 0.5 + 0.05 = 0.65
+	// float64 multiply/divide can land one ULP off exact 0.65
+	if math.Abs(rec.CostUSD-0.65) > 1e-9 {
+		t.Errorf("CostUSD = %v, want 0.65", rec.CostUSD)
+	}
+	if rec.CacheCreationInputTokens != 400_000 || rec.CacheReadInputTokens != 500_000 {
+		t.Errorf("cache fields not persisted: %+v", rec)
 	}
 }
 

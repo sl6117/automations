@@ -25,31 +25,42 @@ var Prices = map[string]struct{ In, Out float64 }{
 
 // the storage key of the append-only run log; exported so
 // read-side consumers (auto cost, digest-mcp) share one definition.
-const CostLogKey = "logs/cost-log.jsonl"
+const (
+	CostLogKey = "logs/cost-log.jsonl"
+	// cache price multipliers vs base input (Anthropic 5 min TTL)
+	cacheWriteMultiplier = 1.25
+	cacheReadMultiplier  = 0.1
+)
 
 // EstimateCost returns the USD cost for a model's token usage, or 0 if the model isn't in the price table.
-func EstimateCost(model string, inputTokens, outputTokens int) float64 {
+// inpputTokens is the uncached tail only; cache writes/reads are priced separately.
+func EstimateCost(model string, inputTokens, outputTokens, cacheCreation, cacheRead int) float64 {
 	p, ok := Prices[strings.ToLower(model)]
 
 	if !ok {
 		return 0
 	}
-	return float64(inputTokens)/1e6*p.In + float64(outputTokens)/1e6*p.Out
+
+	in := float64(inputTokens)/1e6*p.In + float64(cacheCreation)/1e6*p.In*cacheWriteMultiplier +
+		float64(cacheRead)/1e6*p.In*cacheReadMultiplier
+	return in + float64(outputTokens)/1e6*p.Out
 }
 
 // Run is one logged automation run. Timestamp and CostUSD are filled by LogRun
 // SourceReads counts billed X API reads (pages x 50); unlike CostUSD it is real
 // spend even on dry runs, so it is never zeroed.
 type Run struct {
-	Timestamp    string  `json:"ts"`
-	Project      string  `json:"project"`
-	Model        string  `json:"model"`
-	DryRun       bool    `json:"dryRun"`
-	InputTokens  int     `json:"inputTokens"`
-	OutputTokens int     `json:"outputTokens"`
-	CostUSD      float64 `json:"costUsd"`
-	ItemCount    int     `json:"itemCount"`
-	SourceReads  int     `json:"sourceReads,omitempty"`
+	Timestamp                string  `json:"ts"`
+	Project                  string  `json:"project"`
+	Model                    string  `json:"model"`
+	DryRun                   bool    `json:"dryRun"`
+	InputTokens              int     `json:"inputTokens"`
+	OutputTokens             int     `json:"outputTokens"`
+	CacheCreationInputTokens int     `json:"cacheCreationInputTokens,omitempty"`
+	CacheReadInputTokens     int     `json:"cacheReadInputTokens,omitempty"`
+	CostUSD                  float64 `json:"costUsd"`
+	ItemCount                int     `json:"itemCount"`
+	SourceReads              int     `json:"sourceReads,omitempty"`
 }
 
 func logRoot() string {
@@ -68,7 +79,7 @@ func LogRun(ctx context.Context, store storage.Store, run Run) (Run, error) {
 	if run.DryRun {
 		run.CostUSD = 0
 	} else {
-		run.CostUSD = EstimateCost(run.Model, run.InputTokens, run.OutputTokens)
+		run.CostUSD = EstimateCost(run.Model, run.InputTokens, run.OutputTokens, run.CacheCreationInputTokens, run.CacheReadInputTokens)
 	}
 
 	line, err := json.Marshal(run)

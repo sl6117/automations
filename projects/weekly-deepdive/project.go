@@ -109,8 +109,10 @@ func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
 		return fmt.Errorf("planner truncated: tool budget exhausted before a complete plan")
 	}
 
-	total.InputTokens += res.Usage.TotalInputTokens()
+	total.InputTokens += res.Usage.InputTokens
 	total.OutputTokens += res.Usage.OutputTokens
+	total.CacheCreationInputTokens += res.Usage.CacheCreationInputTokens
+	total.CacheReadInputTokens += res.Usage.CacheReadInputTokens
 
 	out, err := json.MarshalIndent(plan, "", " ")
 	if err != nil {
@@ -160,8 +162,10 @@ func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
 			rt.Log.Printf("research %d truncated (budget); accepting parsed report if any", i+1)
 		}
 		reports = append(reports, report)
-		total.InputTokens += rres.Usage.TotalInputTokens()
+		total.InputTokens += rres.Usage.InputTokens
 		total.OutputTokens += rres.Usage.OutputTokens
+		total.CacheCreationInputTokens += rres.Usage.CacheCreationInputTokens
+		total.CacheReadInputTokens += rres.Usage.CacheReadInputTokens
 		rt.Log.Printf("research %d: corroborated=%v findings=%d sources=%d (%d turns, %d in / %d out)",
 			i+1, report.Corroborated, len(report.Findings), len(report.Sources),
 			rres.ToolTurns, rres.Usage.InputTokens, rres.Usage.OutputTokens)
@@ -241,12 +245,14 @@ func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
 		// editor tokens ride the haiku price even though the editor runs sonnet -
 		// same single-model simplification as twitter-digest's judge
 		if _, err := obs.LogRun(ctx, store, obs.Run{
-			Project:      p.Name(),
-			Model:        researcherModel,
-			DryRun:       rt.DryRun,
-			InputTokens:  total.InputTokens,
-			OutputTokens: total.OutputTokens,
-			ItemCount:    len(reports),
+			Project:                  p.Name(),
+			Model:                    researcherModel,
+			DryRun:                   rt.DryRun,
+			InputTokens:              total.InputTokens,
+			OutputTokens:             total.OutputTokens,
+			CacheCreationInputTokens: total.CacheCreationInputTokens,
+			CacheReadInputTokens:     total.CacheReadInputTokens,
+			ItemCount:                len(reports),
 		}); err != nil {
 			rt.Log.Printf("cost log write failed: %v", err)
 		}
