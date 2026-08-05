@@ -1,6 +1,7 @@
 package weeklydeepdive
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -53,7 +54,7 @@ func TestParseResearchReport(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := parseResearchReport(tc.in)
+			got, err := parseResearchReport(json.RawMessage(tc.in))
 			if tc.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 					t.Fatalf("err = %v, want substring %q", err, tc.wantErr)

@@ -80,15 +80,3 @@ func parsePlan(raw json.RawMessage) (Plan, error) {
 		ResearchQuestions: *got.ResearchQuestions,
 	}, nil
 }
-
-func extractJSON(text string) (string, error) {
-	start := strings.Index(text, "{")
-	if start == -1 {
-		return "", fmt.Errorf("no JSON found")
-	}
-	var raw json.RawMessage
-	if err := json.NewDecoder(strings.NewReader(text[start:])).Decode(&raw); err != nil {
-		return "", fmt.Errorf("decode JSON: %w", err)
-	}
-	return string(raw), nil
-}
