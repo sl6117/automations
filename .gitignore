@@ -20,6 +20,9 @@ npm-debug.log*
 # handoff files
 docs/handoffs/
 
+# Personal interview prep (never commit)
+docs/interview-prep/
+
 # Compiled crunner binary (rebuilt locally; used by launchd)
 /bin/
 
