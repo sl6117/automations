@@ -264,3 +264,119 @@ func TestRunInvokesOnToolCall(t *testing.T) {
 		t.Errorf("OnToolCall got name=%q args=%q result=%q isError=%v", gotName, gotArgs, gotResult, gotErr)
 	}
 }
+
+func planOutputTool() *ai.ToolDef {
+	return &ai.ToolDef{
+		Name:        "submit_plan",
+		Description: "Submit the weekly deep-dive plan",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"story":{"type":"string"}},"required":["story"]}`),
+	}
+}
+
+// OutputTool is a typed return channel: calling it ends the loop with its
+// input as Result.Text and must not invoke ToolSource.Call.
+func TestRunOutputToolEndsLoopWithoutCalling(t *testing.T) {
+	planJSON := `{"story":"FIFA","whyChosen":"checkable","sourceTweetIDs":["1"],"researchQuestions":["q"]}`
+	chat := &fakeChat{responses: []ai.ChatResponse{
+		toolUseResp("tu_1", "list_runs", `{}`),
+		toolUseResp("tu_2", "submit_plan", planJSON),
+	}}
+	tools := &fakeTools{result: `{"keys":["a"]}`}
+	res, err := Run(context.Background(), Config{
+		Client: chat, Tools: tools, Model: "m", MaxTokens: 100, MaxToolTurns: 3,
+		OutputTool: planOutputTool(),
+	}, "pick a story")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Text != planJSON || res.Truncated {
+		t.Errorf("res = %+v, want plan JSON as Text, not truncated", res)
+	}
+	if len(tools.calls) != 1 || !strings.Contains(tools.calls[0], "list_runs") {
+		t.Errorf("calls = %v, want only list_runs (submit_plan must not be Call'd)", tools.calls)
+	}
+	if res.ToolTurns != 1 {
+		t.Errorf("ToolTurns = %d, want 1 (only the real tool turn)", res.ToolTurns)
+	}
+	// every turn must offer MCP tools + submit_plan
+	for i, req := range chat.requests {
+		if len(req.Tools) != 2 {
+			t.Errorf("request[%d] tools = %d, want 2 (list_runs + submit_plan)", i, len(req.Tools))
+		}
+		if req.ToolChoice != nil {
+			t.Errorf("request[%d] ToolChoice = %+v, want nil (auto) during research", i, req.ToolChoice)
+		}
+	}
+}
+
+func TestRunOutputToolRejectsEndTurn(t *testing.T) {
+	chat := &fakeChat{responses: []ai.ChatResponse{
+		textResp(`{"story":"x"}`),
+	}}
+	tools := &fakeTools{}
+	_, err := Run(context.Background(), Config{
+		Client: chat, Tools: tools, Model: "m", MaxTokens: 100, MaxToolTurns: 3,
+		OutputTool: planOutputTool(),
+	}, "pick a story")
+	if err == nil || !strings.Contains(err.Error(), "submit_plan") {
+		t.Fatalf("err = %v, want submit_plan complaint", err)
+	}
+	if len(tools.calls) != 0 {
+		t.Errorf("calls = %v, want none", tools.calls)
+	}
+}
+
+// Budget exhaustion with an OutputTool forces submit_plan rather than free-form text.
+func TestRunOutputToolFinalAnswerForcesSubmit(t *testing.T) {
+	planJSON := `{"story":"s","whyChosen":"w","sourceTweetIDs":[],"researchQuestions":["q"]}`
+	chat := &fakeChat{responses: []ai.ChatResponse{
+		toolUseResp("tu_1", "list_runs", `{}`),
+		toolUseResp("tu_2", "list_runs", `{}`), // would be turn 2; budget is 1 → finalAnswer
+		toolUseResp("tu_3", "submit_plan", planJSON),
+	}}
+	tools := &fakeTools{result: `{}`}
+	res, err := Run(context.Background(), Config{
+		Client: chat, Tools: tools, Model: "m", MaxTokens: 100, MaxToolTurns: 1,
+		OutputTool: planOutputTool(),
+	}, "pick a story")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Truncated || res.Text != planJSON {
+		t.Errorf("res = %+v, want Truncated with submit_plan input", res)
+	}
+	if len(tools.calls) != 1 {
+		t.Errorf("calls = %d, want 1", len(tools.calls))
+	}
+	final := chat.requests[2]
+	if len(final.Tools) != 1 || final.Tools[0].Name != "submit_plan" {
+		t.Errorf("final tools = %+v, want only submit_plan", final.Tools)
+	}
+	if final.ToolChoice == nil || final.ToolChoice.Type != "tool" || final.ToolChoice.Name != "submit_plan" {
+		t.Errorf("final ToolChoice = %+v, want forced submit_plan", final.ToolChoice)
+	}
+}
+
+// Calling the output tool on the turn that would hit the budget still succeeds
+// (submit is not a research Call; it terminates before the budget gate).
+func TestRunOutputToolBeatsBudgetGate(t *testing.T) {
+	planJSON := `{"story":"s","whyChosen":"w","sourceTweetIDs":[],"researchQuestions":["q"]}`
+	chat := &fakeChat{responses: []ai.ChatResponse{
+		toolUseResp("tu_1", "list_runs", `{}`),
+		toolUseResp("tu_2", "submit_plan", planJSON), // ToolTurns already 1, MaxToolTurns 1
+	}}
+	tools := &fakeTools{result: `{}`}
+	res, err := Run(context.Background(), Config{
+		Client: chat, Tools: tools, Model: "m", MaxTokens: 100, MaxToolTurns: 1,
+		OutputTool: planOutputTool(),
+	}, "pick a story")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Truncated || res.Text != planJSON {
+		t.Errorf("res = %+v, want non-truncated plan from submit_plan", res)
+	}
+	if len(chat.requests) != 2 {
+		t.Fatalf("requests = %d, want 2 (no finalAnswer)", len(chat.requests))
+	}
+}

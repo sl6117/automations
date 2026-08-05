@@ -1,6 +1,7 @@
 package weeklydeepdive
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -28,15 +29,6 @@ func TestParsePlan(t *testing.T) {
 			},
 		},
 		{
-			name: "markdown fence wrapping",
-			in:   "Here you go:\n```json\n" + valid + "\n```\n",
-			check: func(t *testing.T, p Plan) {
-				if p.Story != "FIFA adds a year without a source" {
-					t.Errorf("story = %q", p.Story)
-				}
-			},
-		},
-		{
 			name:    "missing field",
 			in:      `{"story":"x","whyChosen":"y","sourceTweetIDs":["1"]}`,
 			wantErr: "missing required fields",
@@ -52,14 +44,14 @@ func TestParsePlan(t *testing.T) {
 			wantErr: "researchQuestions must be non-empty",
 		},
 		{
-			name:    "no json",
-			in:      "sorry, no plan today",
-			wantErr: "no JSON found",
+			name:    "invalid json",
+			in:      `{`,
+			wantErr: "parse plan",
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := parsePlan(tc.in)
+			got, err := parsePlan(json.RawMessage(tc.in))
 			if tc.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 					t.Fatalf("err = %v, want substring %q", err, tc.wantErr)

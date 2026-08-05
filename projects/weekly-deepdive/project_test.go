@@ -113,7 +113,7 @@ func pipelineScript() []ai.ChatResponse {
 	}`
 	editor := `{"pass": true, "failures": []}`
 	return []ai.ChatResponse{
-		textResponse(plan, 100, 10),
+		toolSubmitResponse(plannerSubmitTool, plan, 100, 10),
 		textResponse(report, 200, 20),
 		toolSubmitResponse(synthSubmitTool, brief, 300, 30),
 		toolSubmitResponse(editorSubmitTool, editor, 400, 40),

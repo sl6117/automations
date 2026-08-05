@@ -42,6 +42,11 @@ type Config struct {
 	// PromptCache asks the Chat client to enable Anthropic automatic prompt caching on every turn.
 	// Off by default; deepdive agent roles opt in.
 	PromptCache bool
+	// OutputTool, when set, is offered alongside Tools every turn. When the model calls it,
+	// the loop ends successfully with Result.Text = tool input JSON and doesn't invoke ToolSource.Call.
+	// Used for schema-forced structured output (e.g. submit_plan) while real tools still run during research turns.
+	// Nil preserves end_turn text answers (legacy / roles without a submit tool).
+	OutputTool *ai.ToolDef
 }
 
 // Result always carries usable text; Truncated marks answers the budget cut short
@@ -58,6 +63,10 @@ func Run(ctx context.Context, cfg Config, prompt string) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("list tools: %w", err)
 	}
+	offer := tools
+	if cfg.OutputTool != nil {
+		offer = append(append([]ai.ToolDef{}, tools...), *cfg.OutputTool)
+	}
 
 	var res Result
 	messages := []ai.Message{{Role: "user", Content: []ai.ContentBlock{{Type: "text", Text: prompt}}}}
@@ -67,7 +76,7 @@ func Run(ctx context.Context, cfg Config, prompt string) (Result, error) {
 			Model:       cfg.Model,
 			System:      cfg.System,
 			Messages:    messages,
-			Tools:       tools,
+			Tools:       offer,
 			MaxTokens:   cfg.MaxTokens,
 			PromptCache: cfg.PromptCache,
 		}
@@ -93,11 +102,18 @@ func Run(ctx context.Context, cfg Config, prompt string) (Result, error) {
 
 		switch resp.StopReason {
 		case "tool_use":
-			// fall through to execute below
+			// Output tool: typed return channel, before budget gate.
+			if out, ok := outputToolInput(cfg.OutputTool, resp.Content); ok {
+				res.Text = string(out)
+				return res, nil
+			}
 		case "max_tokens":
 			// the reply itself was cut off mid-thought: unusable, real breakage
 			return Result{}, fmt.Errorf("reply truncated by max_tokens; raise Config.MaxTokens")
 		default: // "end_turn": the model answered
+			if cfg.OutputTool != nil {
+				return Result{}, fmt.Errorf("want tool_use %s, got end_turn", cfg.OutputTool.Name)
+			}
 			res.Text = textOf(resp.Content)
 			return res, nil
 		}
@@ -129,9 +145,20 @@ func Run(ctx context.Context, cfg Config, prompt string) (Result, error) {
 	}
 }
 
-// finalAnswer is the escape hatch: answer the pending tool_use blocks with budget-exhausted refusals,
-// then ask the model to answer from what it has,
-// offering NO tools so it cannot ask again.
+func outputToolInput(out *ai.ToolDef, content []ai.ContentBlock) (json.RawMessage, bool) {
+	if out == nil {
+		return nil, false
+	}
+	for _, b := range content {
+		if b.Type == "tool_use" && b.Name == out.Name {
+			return b.Input, true
+		}
+	}
+	return nil, false
+}
+
+// finalAnswer is the escape hatch: refuse pending tool_use blocks, then force an answer from what was gathered.
+// With OutputTool set, only that tool is offered and tool_choice forces it; otherwise no tools (legacy text answer).
 func finalAnswer(ctx context.Context, cfg Config, messages []ai.Message, pending []ai.ContentBlock, res Result) (Result, error) {
 	var blocks []ai.ContentBlock
 	for _, b := range pending {
@@ -139,24 +166,46 @@ func finalAnswer(ctx context.Context, cfg Config, messages []ai.Message, pending
 			blocks = append(blocks, ai.ContentBlock{Type: "tool_result", ToolUseID: b.ID, Content: "tool budget exhausted; call not executed", IsError: true})
 		}
 	}
-	blocks = append(blocks, ai.ContentBlock{Type: "text", Text: "The tool budget is exhausted. Answer the original question now using only what you have already gathered."})
+
+	nudge := "The tool budget is exhausted. Answer the original question now using only what you have already gathered."
+	if cfg.OutputTool != nil {
+		nudge = fmt.Sprintf("The tool budget is exhausted. Call %s now with your best answer from what you have already gathered.", cfg.OutputTool.Name)
+	}
+	blocks = append(blocks, ai.ContentBlock{Type: "text", Text: nudge})
 
 	messages = append(messages, ai.Message{Role: "user", Content: blocks})
 
-	resp, err := cfg.Client.Chat(ctx, ai.ChatRequest{
+	chatReq := ai.ChatRequest{
 		Model:       cfg.Model,
 		System:      cfg.System,
 		Messages:    messages,
 		MaxTokens:   cfg.MaxTokens,
 		PromptCache: cfg.PromptCache,
-	})
+	}
+	if cfg.OutputTool != nil {
+		chatReq.Tools = []ai.ToolDef{*cfg.OutputTool}
+		chatReq.ToolChoice = &ai.ToolChoice{Type: "tool", Name: cfg.OutputTool.Name}
+	}
+
+	resp, err := cfg.Client.Chat(ctx, chatReq)
 	if err != nil {
 		return Result{}, fmt.Errorf("final answer: %w", err)
 	}
 	res.Usage.InputTokens += resp.Usage.InputTokens
 	res.Usage.OutputTokens += resp.Usage.OutputTokens
-	res.Text = textOf(resp.Content)
+	res.Usage.CacheCreationInputTokens += resp.Usage.CacheCreationInputTokens
+	res.Usage.CacheReadInputTokens += resp.Usage.CacheReadInputTokens
+
 	res.Truncated = true
+
+	if cfg.OutputTool != nil {
+		if out, ok := outputToolInput(cfg.OutputTool, resp.Content); ok {
+			res.Text = string(out)
+			return res, nil
+		}
+		return Result{}, fmt.Errorf("final answer: want tool_use %s, got %q", cfg.OutputTool.Name, resp.StopReason)
+	}
+	res.Text = textOf(resp.Content)
 	return res, nil
 }
 

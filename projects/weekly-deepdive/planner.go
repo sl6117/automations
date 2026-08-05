@@ -8,7 +8,21 @@ import (
 	"time"
 
 	"github.com/sl6117/automations/internal/agent"
+	"github.com/sl6117/automations/internal/ai"
 )
+
+const plannerSubmitTool = "submit_plan"
+
+var planSchema = json.RawMessage(`{
+	"type": "object",
+	"properties": {
+	  "story": {"type": "string"},
+	  "whyChosen": {"type": "string"},
+	  "sourceTweetIDs": {"type": "array", "items": {"type": "string"}},
+	  "researchQuestions": {"type": "array", "items": {"type": "string"}}
+	},
+	"required": ["story", "whyChosen", "sourceTweetIDs", "researchQuestions"]
+  }`)
 
 // Plan is the planner role's contract. Downstream roles trust these fields, not prose.
 type Plan struct {
@@ -21,22 +35,24 @@ type Plan struct {
 func planWeek(ctx context.Context, cfg agent.Config, now time.Time) (Plan, agent.Result, error) {
 	since := now.UTC().AddDate(0, 0, -7).Format("2006-01-02")
 	prompt := fmt.Sprintf(
-		"Pick the single biggest story from digests since %s (rolling 7 days). Use the tools. Reply with ONLY a JSON object matching the schema in the system prompt.",
-		since,
+		"Pick the single biggest story from digests since %s (rolling 7 days). Use the tools, then call %s with the plan.",
+		since, plannerSubmitTool,
 	)
+
+	cfg.OutputTool = &ai.ToolDef{
+		Name:        plannerSubmitTool,
+		Description: "Submit the weekly deep-dive plan",
+		InputSchema: planSchema,
+	}
 	res, err := agent.Run(ctx, cfg, prompt)
 	if err != nil {
 		return Plan{}, res, err
 	}
-	plan, err := parsePlan(res.Text)
+	plan, err := parsePlan(json.RawMessage(res.Text))
 	return plan, res, err
 }
 
-func parsePlan(text string) (Plan, error) {
-	raw, err := extractJSON(text)
-	if err != nil {
-		return Plan{}, err
-	}
+func parsePlan(raw json.RawMessage) (Plan, error) {
 	// pointers: missing field = error, not silent zero
 	var got struct {
 		Story             *string   `json:"story"`
@@ -45,7 +61,7 @@ func parsePlan(text string) (Plan, error) {
 		ResearchQuestions *[]string `json:"researchQuestions"`
 	}
 
-	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+	if err := json.Unmarshal(raw, &got); err != nil {
 		return Plan{}, fmt.Errorf("parse plan: %w", err)
 	}
 	if got.Story == nil || got.WhyChosen == nil || got.SourceTweetIDs == nil || got.ResearchQuestions == nil {
