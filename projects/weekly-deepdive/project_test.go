@@ -115,7 +115,7 @@ func pipelineScript() []ai.ChatResponse {
 	return []ai.ChatResponse{
 		textResponse(plan, 100, 10),
 		textResponse(report, 200, 20),
-		textResponse(brief, 300, 30),
+		toolSubmitResponse(synthSubmitTool, brief, 300, 30),
 		toolSubmitResponse(editorSubmitTool, editor, 400, 40),
 	}
 }
@@ -194,7 +194,7 @@ func TestRunCostIncludesReviseLoopTokens(t *testing.T) {
 		"sections": [{"heading": "What happened", "body": "The article confirms it."}]
 	}`
 	script = append(script,
-		textResponse(revised, 500, 50),
+		toolSubmitResponse(synthSubmitTool, revised, 500, 50),
 		toolSubmitResponse(editorSubmitTool, `{"pass": true, "failures": []}`, 600, 60),
 	)
 

@@ -23,26 +23,14 @@ func reviseBrief(ctx context.Context, client ai.ChatClient, system string, plan 
 		return Brief{}, ai.Usage{}, err
 	}
 	prompt := fmt.Sprintf(
-		"Your previous brief failed the editor's contract check. Rewrite it fixing ONLY the listed editorFailures — in particular, any claim not backed by a corroborated finding must carry the hedge label %q inline. Keep everything that already complied.\n\n%s\n\nReply with ONLY a JSON object matching the schema in the system prompt.",
-		HedgeLabel, payload,
+		"Your previous brief failed the editor's contract check. Rewrite it fixing ONLY the listed editorFailures — in particular, any claim not backed by a corroborated finding must carry the hedge label %q inline. Keep everything that already complied.\n\n%s\n\nCall %s with the revised brief.",
+		HedgeLabel, payload, synthSubmitTool,
 	)
-	resp, err := client.Chat(ctx, ai.ChatRequest{
-		Model:     synthesizerModel,
-		System:    system,
-		Messages:  []ai.Message{{Role: "user", Content: []ai.ContentBlock{{Type: "text", Text: prompt}}}},
-		MaxTokens: synthesizerMaxTokens,
-	})
+	brief, usage, err := briefFromForcedTool(ctx, client, synthesizerModel, system, prompt)
 	if err != nil {
-		return Brief{}, resp.Usage, fmt.Errorf("revise: %w", err)
+		return Brief{}, usage, fmt.Errorf("revise: %w", err)
 	}
-	if resp.StopReason == "max_tokens" {
-		return Brief{}, resp.Usage, fmt.Errorf("revise: reply truncated by max_tokens")
-	}
-	revised, err := parseBrief(resp.Text)
-	if err != nil {
-		return Brief{}, resp.Usage, fmt.Errorf("revise: %w", err)
-	}
-	return revised, resp.Usage, nil
+	return brief, usage, nil
 }
 
 // runReviseLoop drives up to budget revision passes while the editor still fails.

@@ -9,7 +9,7 @@ Rules:
 - Do not invent sources or findings.
 - Uncertainty is expected and valuable; prefer honest hedges over a thin-sounding "complete" story.
 
-Reply with ONLY a JSON object:
+Submit the brief by calling the submit_brief tool:
 - title (string)
 - summary (string): short ledge; hedge as needed
 - sections (non-empty array of {heading, body})
