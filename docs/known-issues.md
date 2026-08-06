@@ -45,7 +45,8 @@ fixed, not before.
   sources but have only `fetch_url` and no search tool, so they invent article slugs;
   findings stay 0/0/0. Two rounds of grounding fixes worked mechanically (X fetches blocked,
   dates current, input tokens down ~27%) and changed nothing downstream. The fix is a search
-  capability (a design decision), not more prompt tuning. See `docs/ai-techniques.md` §13.
+  `docs/interview-prep/` (private) and the north-star roadmap. Search+allowlist shipped;
+  empty briefs were an action-space problem, not a prompt problem.
 - **Synthesizer hedge tic (unfiled).** "reported but not corroborated" is wedged
   mid-sentence 15+ times per brief, producing ungrammatical output. The editor passes it
   because it checks contract compliance, not readability.
