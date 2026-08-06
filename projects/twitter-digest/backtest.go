@@ -12,19 +12,23 @@ import (
 
 // BacktestParams is the ranked-filter config replayed over stored runs.
 type BacktestParams struct {
-	Lookback     time.Duration
-	MaxPerAuthor int
-	DigestBudget int
-	Alpha        float64
+	Lookback      time.Duration
+	MinEngagement int
+	RelativeK     float64
+	MaxPerAuthor  int
+	DigestBudget  int
+	Alpha         float64
 }
 
 // DefaultBacktestParams matches config.json caps and the agreed a / 7-day window.
 func DefaultBacktestParams() BacktestParams {
 	return BacktestParams{
-		Lookback:     7 * 24 * time.Hour,
-		MaxPerAuthor: 3,
-		DigestBudget: 32,
-		Alpha:        0.7,
+		Lookback:      7 * 24 * time.Hour,
+		MinEngagement: 100,
+		RelativeK:     0.5,
+		MaxPerAuthor:  3,
+		DigestBudget:  32,
+		Alpha:         0.7,
 	}
 }
 
@@ -44,8 +48,8 @@ func RankBacktestReport(ctx context.Context, store storage.Store, w io.Writer, s
 
 func writeFilterBacktest(w io.Writer, b FilterBacktest, p BacktestParams) {
 	fmt.Fprintf(w, "rank-budget backtest — %d xapi runs\n", b.Runs)
-	fmt.Fprintf(w, "params: lookback=%s maxPerAuthor=%d digestBudget=%d alpha=%.2f\n",
-		p.Lookback, p.MaxPerAuthor, p.DigestBudget, p.Alpha)
+	fmt.Fprintf(w, "params: lookback=%s minEngagement=%d relativeK=%.2f maxPerAuthor=%d digestBudget=%d alpha=%.2f\n",
+		p.Lookback, p.MinEngagement, p.RelativeK, p.MaxPerAuthor, p.DigestBudget, p.Alpha)
 	fmt.Fprintf(w, "kept: baseline %d → ranked %d\n", b.BaselineKept, b.RankedKept)
 	fmt.Fprintf(w, "cite recall: baseline %.1f%% → ranked %.1f%% (%d/%d → %d/%d cited ids kept)\n",
 		b.BaselineCiteRecall*100, b.RankedCiteRecall*100,
@@ -98,11 +102,13 @@ func backtestRankedFilter(runs []SourceStats, artifacts []Artifact, p BacktestPa
 		}
 		out.Runs++
 		medians := handleMedians(runs, p.Lookback, ts)
-		ranked := applyRankedFilter(run.Posts, medians, RankParams{
-			MaxPerAuthor: p.MaxPerAuthor,
-			DigestBudget: p.DigestBudget,
-			Alpha:        p.Alpha,
-			RunAt:        ts,
+		ranked := applyAddOnly(run.Posts, medians, RankParams{
+			MinEngagement: p.MinEngagement,
+			RelativeK:     p.RelativeK,
+			MaxPerAuthor:  p.MaxPerAuthor,
+			DigestBudget:  p.DigestBudget,
+			Alpha:         p.Alpha,
+			RunAt:         ts,
 		})
 		for i, base := range run.Posts {
 			if base.Kept {

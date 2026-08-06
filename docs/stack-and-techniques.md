@@ -39,7 +39,7 @@ EventBridge ──► Lambda (shared image)
 
 | Technique | Where |
 |-----------|--------|
-| Deterministic pre-filter | `projects/twitter-digest/filter.go` (+ offline ranking backtest in `rank.go` / `backtest.go`) |
+| Deterministic pre-filter | `projects/twitter-digest/filter.go` (+ offline `auto rank-backtest`; live ranking swap frozen) |
 | Context minimization | `slimTweets` — shared ground truth for digest / judge / revise |
 | Prompt as contract | `## Topic` headers + `(@handle url)` citations |
 | Structured output | Forced submit tools / agent `OutputTool` + JSON Schema; Go validates |

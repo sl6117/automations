@@ -118,11 +118,12 @@ Capstones first (portfolio freeze after these), then orchestration depth, then o
    author so two RTs of one post are one voice. Annotate only, never suppress.
    Known limit: a bullet whose citation sits on a continuation line gets no label
    (fail-safe; only the offline heuristic renderer emits multi-line bullets).
-2. **Ranking-budget filter** (IN PROGRESS, input-quality phase 3): replace flat
-   `minEngagement` with per-handle rolling median + engagement-per-hour; backtest on
-   `sourcestats` + citation recall before wiring live `filter.go`. Prompted by
-   2026-07-27: at 38 accounts the list exceeds the page cap daily, so oldest posts
-   are silently dropped while still billed at $0.005/read.
+2. **Ranking-budget filter** (input-quality phase 3 — **FROZEN offline 2026-08-06**):
+   `rank.go` / `backtest.go` + `auto rank-backtest`. Pure rank-only and hybrid re-rank
+   hurt citation recall; baseline-seeded add-only preserved 100% cite recall but only
+   recovered 8 newswire posts across 10 runs (budget already full most days). Do not
+   wire into live `filter.go` unless `digestBudget` / list shape changes. Portfolio
+   value is the offline eval loop, not a production swap.
 3. **RAG-lite** (next capstone): retrieve prior digest artifacts into weekly-deepdive
    context so research starts from our own archive, not a cold planner.
 4. **Parallel researcher fan-out** (latency skill): same fixed DAG, run researcher

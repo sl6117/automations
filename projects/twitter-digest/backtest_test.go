@@ -51,10 +51,12 @@ func TestBacktestRankedFilterCiteRecall(t *testing.T) {
 	}
 
 	got := backtestRankedFilter([]SourceStats{prior, run}, artifacts, BacktestParams{
-		Lookback:     7 * 24 * time.Hour,
-		MaxPerAuthor: 3,
-		DigestBudget: 32,
-		Alpha:        0.7,
+		Lookback:      7 * 24 * time.Hour,
+		MinEngagement: 100,
+		RelativeK:     0.5,
+		MaxPerAuthor:  3,
+		DigestBudget:  32,
+		Alpha:         0.7,
 	})
 
 	if got.Runs != 2 {
@@ -86,7 +88,8 @@ func TestBacktestRankedFilterIgnoresMockAndEmptyDigests(t *testing.T) {
 		Timestamp: ts.Format(time.RFC3339), Language: "English", Digest: "   ",
 	}}
 	got := backtestRankedFilter(runs, artifacts, BacktestParams{
-		Lookback: 7 * 24 * time.Hour, MaxPerAuthor: 3, DigestBudget: 32, Alpha: 0.7,
+		Lookback: 7 * 24 * time.Hour, MinEngagement: 100, RelativeK: 0.5,
+		MaxPerAuthor: 3, DigestBudget: 32, Alpha: 0.7,
 	})
 	if got.Runs != 0 || got.Cited != 0 {
 		t.Fatalf("got %+v, want empty backtest over mock/empty", got)
@@ -118,7 +121,8 @@ func TestBacktestRankedFilterRTKeepDoesNotRiseOnFixture(t *testing.T) {
 		},
 	}
 	got := backtestRankedFilter([]SourceStats{prior, run}, nil, BacktestParams{
-		Lookback: 7 * 24 * time.Hour, MaxPerAuthor: 2, DigestBudget: 32, Alpha: 0.7,
+		Lookback: 7 * 24 * time.Hour, MinEngagement: 100, RelativeK: 0.5,
+		MaxPerAuthor: 2, DigestBudget: 32, Alpha: 0.7,
 	})
 	if got.RankedRTKept > got.BaselineRTKept {
 		t.Fatalf("RT kept rose: baseline=%d ranked=%d", got.BaselineRTKept, got.RankedRTKept)
@@ -133,11 +137,14 @@ func TestWriteFilterBacktest(t *testing.T) {
 		BaselineCiteRecall: 0.5, RankedCiteRecall: 0.75,
 		BaselineRTKept: 2, RankedRTKept: 1, NewswireRecovered: 5,
 	}, BacktestParams{
-		Lookback: 7 * 24 * time.Hour, MaxPerAuthor: 3, DigestBudget: 32, Alpha: 0.7,
+		Lookback: 7 * 24 * time.Hour, MinEngagement: 100, RelativeK: 0.5,
+		MaxPerAuthor: 3, DigestBudget: 32, Alpha: 0.7,
 	})
 	got := buf.String()
 	for _, want := range []string{
 		"rank-budget backtest",
+		"minEngagement=100",
+		"relativeK=0.50",
 		"cite recall: baseline 50.0% → ranked 75.0%",
 		"newswire recovered: 5",
 		"RT kept: baseline 2 → ranked 1",
@@ -204,7 +211,8 @@ func TestRankBacktestReport(t *testing.T) {
 
 	var buf bytes.Buffer
 	if err := RankBacktestReport(ctx, store, &buf, "", BacktestParams{
-		Lookback: 7 * 24 * time.Hour, MaxPerAuthor: 3, DigestBudget: 32, Alpha: 0.7,
+		Lookback: 7 * 24 * time.Hour, MinEngagement: 100, RelativeK: 0.5,
+		MaxPerAuthor: 3, DigestBudget: 32, Alpha: 0.7,
 	}); err != nil {
 		t.Fatalf("RankBacktestReport: %v", err)
 	}
