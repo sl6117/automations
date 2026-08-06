@@ -90,4 +90,6 @@ the fetch cursor advances after enqueue, and a DynamoDB job queue drains leftove
 
 Build sequence steps 1–9 are complete (see `docs/decisions/2026-07-06-north-star-agentic-roadmap.md`). Active work comes off the idea shelf: input-quality (list curation / ranking), agent-quality (schema-forced structured output across deepdive roles), and queue ops tooling.
 
+**Stack + AI technique map:** [`docs/stack-and-techniques.md`](docs/stack-and-techniques.md).
+
 See `docs/decisions/` for the reasoning behind these choices. Agent context lives in `AGENTS.md`.
