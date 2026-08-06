@@ -41,6 +41,8 @@ func main() {
 		cmdSources(os.Args[2:])
 	case "verdicts":
 		cmdVerdicts(os.Args[2:])
+	case "rank-backtest":
+		cmdRankBacktest(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", os.Args[1])
 		usage()
@@ -138,5 +140,18 @@ func cmdVerdicts(args []string) {
 	}
 	if err := twitterdigest.VerdictsReport(context.Background(), store, os.Stdout, *since); err != nil {
 		log.Fatalf("verdicts: %v", err)
+	}
+}
+
+func cmdRankBacktest(args []string) {
+	fs := flag.NewFlagSet("rank-backtest", flag.ExitOnError)
+	since := fs.String("since", "", "earliest run date to include, YYYY-MM-DD")
+	fs.Parse(args)
+	store, err := storage.FromEnv(context.Background())
+	if err != nil {
+		log.Fatalf("rank-backtest: %v", err)
+	}
+	if err := twitterdigest.RankBacktestReport(context.Background(), store, os.Stdout, *since, twitterdigest.DefaultBacktestParams()); err != nil {
+		log.Fatalf("rank-backtest: %v", err)
 	}
 }
