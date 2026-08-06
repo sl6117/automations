@@ -106,24 +106,36 @@ not as a separate track.
    `sleep` does not advance while the machine is asleep. Re-read the log immediately before
    any manual recovery send — a stale read caused one duplicate digest on 2026-07-25.)
 
-## Idea shelf (approved, unscheduled)
+## Idea shelf (approved, ordered)
 
-- ~~Single-source labeling~~ (owner 2026-07-18; DONE 2026-08-02, phase 4 of the
-  input-quality arc): bullets whose citations trace to one distinct voice get a
-  "[single-source]" marker at the delivery boundary only — artifact/eval/judge/rejudge
-  keep the model's unlabeled text. Counting is by status id mapped to kept posts
-  (handles get mangled by the model, ids do not); retweets attribute to the original
-  author so two RTs of one post are one voice. Annotate only, never suppress.
-  Known limit: a bullet whose citation sits on a continuation line gets no label
-  (fail-safe; only the offline heuristic renderer emits multi-line bullets).
-- Dead-letter requeue tooling (`auto queue ls` / `requeue`) — queue operations depth;
-  needs a careful fresh session, touches production queue data.
-- Ranking-budget filter; video/linked-media enrichment (post-roadmap).
-  IN PROGRESS: the ranking-budget filter is phase 3 of the input-quality arc (per-handle
-  rolling median plus engagement-per-hour, replacing the flat `minEngagement` threshold).
-  Prompted by a real finding on 2026-07-27: at 38 accounts the list exceeds the 3-page
-  (150-post) fetch cap every day, so the oldest posts of each day are silently dropped
-  while still being paid for at $0.005/read.
+Capstones first (portfolio freeze after these), then orchestration depth, then ops:
+
+1. ~~Single-source labeling~~ (owner 2026-07-18; DONE 2026-08-02, phase 4 of the
+   input-quality arc): bullets whose citations trace to one distinct voice get a
+   "[single-source]" marker at the delivery boundary only — artifact/eval/judge/rejudge
+   keep the model's unlabeled text. Counting is by status id mapped to kept posts
+   (handles get mangled by the model, ids do not); retweets attribute to the original
+   author so two RTs of one post are one voice. Annotate only, never suppress.
+   Known limit: a bullet whose citation sits on a continuation line gets no label
+   (fail-safe; only the offline heuristic renderer emits multi-line bullets).
+2. **Ranking-budget filter** (IN PROGRESS, input-quality phase 3): replace flat
+   `minEngagement` with per-handle rolling median + engagement-per-hour; backtest on
+   `sourcestats` + citation recall before wiring live `filter.go`. Prompted by
+   2026-07-27: at 38 accounts the list exceeds the page cap daily, so oldest posts
+   are silently dropped while still billed at $0.005/read.
+3. **RAG-lite** (next capstone): retrieve prior digest artifacts into weekly-deepdive
+   context so research starts from our own archive, not a cold planner.
+4. **Parallel researcher fan-out** (latency skill): same fixed DAG, run researcher
+   roles concurrently with bounded concurrency — production orchestration practice
+   without changing topology. Depends on ranking-budget/RAG-lite not blocking; tools
+   already solid enough.
+5. **Orchestrator that re-plans** (true multi-agent): host may spawn/drop research
+   questions or re-route after editor/gate signals. Requires solid tools + eval first
+   (action-space lesson); do after parallel fan-out so concurrency and contracts are
+   proven on the fixed graph.
+6. Dead-letter requeue tooling (`auto queue ls` / `requeue`) — queue operations depth;
+   needs a careful fresh session, touches production queue data.
+7. Video/linked-media enrichment (post-roadmap).
 
 ## The portfolio story this produces
 
