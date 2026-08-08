@@ -1,6 +1,7 @@
 package weeklydeepdive
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -32,6 +33,10 @@ type Plan struct {
 	ResearchQuestions []string `json:"researchQuestions"`
 }
 
+// stringList accepts a JSON array of strings or a single string (models often slip and send one id as a string)
+// empty string -> empty list
+type stringList []string
+
 func planWeek(ctx context.Context, cfg agent.Config, now time.Time) (Plan, agent.Result, error) {
 	since := now.UTC().AddDate(0, 0, -7).Format("2006-01-02")
 	prompt := fmt.Sprintf(
@@ -55,10 +60,10 @@ func planWeek(ctx context.Context, cfg agent.Config, now time.Time) (Plan, agent
 func parsePlan(raw json.RawMessage) (Plan, error) {
 	// pointers: missing field = error, not silent zero
 	var got struct {
-		Story             *string   `json:"story"`
-		WhyChosen         *string   `json:"whyChosen"`
-		SourceTweetIDs    *[]string `json:"sourceTweetIDs"`
-		ResearchQuestions *[]string `json:"researchQuestions"`
+		Story             *string     `json:"story"`
+		WhyChosen         *string     `json:"whyChosen"`
+		SourceTweetIDs    *stringList `json:"sourceTweetIDs"`
+		ResearchQuestions *stringList `json:"researchQuestions"`
 	}
 
 	if err := json.Unmarshal(raw, &got); err != nil {
@@ -76,7 +81,34 @@ func parsePlan(raw json.RawMessage) (Plan, error) {
 	return Plan{
 		Story:             *got.Story,
 		WhyChosen:         *got.WhyChosen,
-		SourceTweetIDs:    *got.SourceTweetIDs,
-		ResearchQuestions: *got.ResearchQuestions,
+		SourceTweetIDs:    []string(*got.SourceTweetIDs),
+		ResearchQuestions: []string(*got.ResearchQuestions),
 	}, nil
+}
+
+func (s *stringList) UnmarshalJSON(data []byte) error {
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 || string(data) == "null" {
+		*s = nil
+		return nil
+	}
+	if data[0] == '"' {
+		var one string
+		if err := json.Unmarshal(data, &one); err != nil {
+			return err
+		}
+		one = strings.TrimSpace(one)
+		if one == "" {
+			*s = nil
+			return nil
+		}
+		*s = []string{one}
+		return nil
+	}
+	var many []string
+	if err := json.Unmarshal(data, &many); err != nil {
+		return err
+	}
+	*s = many
+	return nil
 }

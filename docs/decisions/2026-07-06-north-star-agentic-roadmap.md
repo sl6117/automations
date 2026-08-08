@@ -124,8 +124,9 @@ Capstones first (portfolio freeze after these), then orchestration depth, then o
    recovered 8 newswire posts across 10 runs (budget already full most days). Do not
    wire into live `filter.go` unless `digestBudget` / list shape changes. Portfolio
    value is the offline eval loop, not a production swap.
-3. **RAG-lite** (next capstone): retrieve prior digest artifacts into weekly-deepdive
-   context so research starts from our own archive, not a cold planner.
+3. **RAG-lite** (DONE 2026-08-07): lexical retrieve over English digest artifacts →
+   top‑K sections injected into researcher prompts (`retrieve.go`). No embeddings;
+   archive text is hint-only — web corroboration still required for `corroborated=true`.
 4. **Parallel researcher fan-out** (latency skill): same fixed DAG, run researcher
    roles concurrently with bounded concurrency — production orchestration practice
    without changing topology. Depends on ranking-budget/RAG-lite not blocking; tools

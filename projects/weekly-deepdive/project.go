@@ -24,6 +24,7 @@ const (
 	researcherModel            = "claude-haiku-4-5"
 	synthesizerModel           = "claude-haiku-4-5"
 	roleMaxTokens              = 1000
+	researcherMaxTokens        = 2500
 	roleMaxToolTurns           = 5
 	synthesizerMaxTokens       = 2500
 	maxResearchQuestions       = 3 // cost guard for early dry-run
@@ -146,15 +147,22 @@ func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
 	researchTools := agent.GatedFetch{Inner: tools, Allow: allow}
 
 	for i, q := range questions {
+		query := plan.Story + " " + q
+		archiveBlock, err := retrieveDigestContext(ctx, tools, now().AddDate(0, 0, -7), query, ragTopK, ragMaxChars)
+		if err != nil {
+			return fmt.Errorf("retrieve digest context: %w", err)
+		}
+		rt.Log.Printf("research %d archive context: %d bytes", i+1, len(archiveBlock))
+
 		rt.Log.Printf("research %d/%d: %s", i+1, len(questions), q)
 		report, rres, err := researchOne(ctx, agent.Config{
 			Client: chat, Tools: researchTools, Model: researcherModel,
-			System: string(researcherSys), MaxTokens: roleMaxTokens, MaxToolTurns: roleMaxToolTurns,
+			System: string(researcherSys), MaxTokens: researcherMaxTokens, MaxToolTurns: roleMaxToolTurns,
 			WebSearchMaxUses: researcherWebSearchMaxUses,
 			FetchAllowlist:   allow,
 			OnToolCall:       onTool,
 			PromptCache:      true,
-		}, plan.Story, q, seedBlock)
+		}, plan.Story, q, seedBlock, archiveBlock)
 		if err != nil {
 			return fmt.Errorf("research %q: %w", q, err)
 		}

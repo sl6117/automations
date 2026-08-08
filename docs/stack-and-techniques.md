@@ -40,6 +40,7 @@ EventBridge ──► Lambda (shared image)
 | Technique | Where |
 |-----------|--------|
 | Deterministic pre-filter | `projects/twitter-digest/filter.go` (+ offline `auto rank-backtest`; live ranking swap frozen) |
+| RAG-lite (lexical retrieve) | `projects/weekly-deepdive/retrieve.go` — top‑K English digest sections into researcher prompt |
 | Context minimization | `slimTweets` — shared ground truth for digest / judge / revise |
 | Prompt as contract | `## Topic` headers + `(@handle url)` citations |
 | Structured output | Forced submit tools / agent `OutputTool` + JSON Schema; Go validates |

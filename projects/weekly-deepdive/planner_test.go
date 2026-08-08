@@ -44,6 +44,34 @@ func TestParsePlan(t *testing.T) {
 			wantErr: "researchQuestions must be non-empty",
 		},
 		{
+			name: "sourceTweetIDs as single string",
+			in: `{
+				"story": "x",
+				"whyChosen": "y",
+				"sourceTweetIDs": "111",
+				"researchQuestions": ["q1"]
+			}`,
+			check: func(t *testing.T, p Plan) {
+				if len(p.SourceTweetIDs) != 1 || p.SourceTweetIDs[0] != "111" {
+					t.Fatalf("SourceTweetIDs = %v, want [111]", p.SourceTweetIDs)
+				}
+			},
+		},
+		{
+			name: "sourceTweetIDs empty string means none",
+			in: `{
+				"story": "x",
+				"whyChosen": "y",
+				"sourceTweetIDs": "",
+				"researchQuestions": ["q1"]
+			}`,
+			check: func(t *testing.T, p Plan) {
+				if len(p.SourceTweetIDs) != 0 {
+					t.Fatalf("SourceTweetIDs = %v, want empty", p.SourceTweetIDs)
+				}
+			},
+		},
+		{
 			name:    "invalid json",
 			in:      `{`,
 			wantErr: "parse plan",
