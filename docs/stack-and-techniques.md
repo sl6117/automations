@@ -33,7 +33,7 @@ EventBridge ──► Lambda (shared image)
 
 **Daily digest:** fetch → deterministic filter → Haiku digest (prompt cache) → tier-1 eval → Sonnet judge → adopt-only-if-clean revise → enqueue → drain.
 
-**Weekly deepdive:** MCP archive → planner → researchers in parallel(`researchFanOut`, `web_search` + allowlisted `fetch_url`) → synthesizer → editor → revise → deliver. Fixed multi-**role** DAG (not a self-replanning multi-agent swarm).
+**Weekly deepdive:** MCP archive → planner → researchers in parallel (`researchFanOut`, `web_search` + allowlisted `fetch_url`) → synthesizer → editor → (optional **critic-triggered replan**: more research → synth/edit) → text revise → deliver. Host-orchestrated multi-**role** DAG with a bounded conditional edge — not an open agent swarm.
 
 ## AI techniques (literature ↔ code)
 
@@ -47,14 +47,15 @@ EventBridge ──► Lambda (shared image)
 | Structured output | Forced submit tools / agent `OutputTool` + JSON Schema; Go validates |
 | Two-tier eval | `eval.go` then LLM judge |
 | LLM-as-judge | Sonnet, temp 0, separate `judgeModel` |
-| Generator–critic / Reflexion | `revise.go` (digest + deepdive), **adopt-only-if-clean** |
+| Generator–critic / Reflexion | `revise.go` (digest + deepdive), **adopt-only-if-clean** — text refine, same evidence |
+| Critic-triggered replan | Deepdive (building): editor fail → add research Qs → fan-out → append → synth/edit; see [decision](decisions/2026-08-08-deepdive-critic-triggered-replan.md) |
 | Fail-open quality | Judge/revise errors never blank the inbox |
 | Artifact archive / replay | `logs/runs/…`, `cmd/rejudge` |
 | Offline eval / backtest | `sourcestats` + `auto rank-backtest` (citation recall) |
 | Implicit feedback | Citation rate via `citations.go` |
 | Tool-use agent loop | `internal/agent.Run` — only place the model chooses the next action |
 | Action-space design | Allowlist / `GatedFetch` — inventing URLs is impossible, not “discouraged” |
-| Multi-role orchestration | `weekly-deepdive` fixed topology |
+| Multi-role orchestration | `weekly-deepdive` host-owned DAG (+ conditional replan edge) |
 | MCP (M clients × N tools) | One server for IDE + orchestrator |
 | Prompt caching | Digest system-block breakpoint; Chat automatic cache; priced write/read |
 | Model tiering | Haiku default; Sonnet for judge/editor |
@@ -71,4 +72,4 @@ EventBridge ──► Lambda (shared image)
 
 ## What’s next (idea shelf)
 
-Ordered in the [north-star roadmap](decisions/2026-07-06-north-star-agentic-roadmap.md): ranking-budget (frozen) → RAG-lite (done) → parallel fan-out (done) → **orchestrator that re-plans** → queue ops tooling.
+Ordered in the [north-star roadmap](decisions/2026-07-06-north-star-agentic-roadmap.md): ranking-budget (frozen) → RAG-lite (done) → parallel fan-out (done) → **critic-triggered replan** (building) → queue ops tooling. Further replan depth (selective trigger, drop/replace Qs, open supervisor): [decision doc](decisions/2026-08-08-deepdive-critic-triggered-replan.md).

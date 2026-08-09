@@ -133,10 +133,13 @@ Capstones first (portfolio freeze after these), then orchestration depth, then o
    already solid enough.
    `researchFanOut` runs capped questions concurrently (fail-fast cancel, `Allowlist.Clone`, serialized MCP
    via `serialTools`). Same fixed DAG - latency skill, not topology change. Commit `9e96ecf`.
-5. **Orchestrator that re-plans** (true multi-agent): host may spawn/drop research
-   questions or re-route after editor/gate signals. Requires solid tools + eval first
-   (action-space lesson); do after parallel fan-out so concurrency and contracts are
-   proven on the fixed graph.
+5. **Critic-triggered replan** (IN PROGRESS 2026-08-08): industry name for the
+   production-conservative step after a fixed multi-role DAG + generator–critic
+   revise — also “plan-and-execute + replan” / adaptive research (CRAG-style for
+   questions). After editor fail, host may call a replan role to **add** 0–N research
+   questions, fan-out, append reports, synth/edit again, then text revise. v1 is
+   append-only + budgets (`replanBudget`, `maxReplanQuestions`); not an open swarm.
+   Design: `docs/decisions/2026-08-08-deepdive-critic-triggered-replan.md`.
 6. Dead-letter requeue tooling (`auto queue ls` / `requeue`) — queue operations depth;
    needs a careful fresh session, touches production queue data.
 7. Video/linked-media enrichment (post-roadmap).
