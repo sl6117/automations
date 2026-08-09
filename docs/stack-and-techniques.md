@@ -33,7 +33,7 @@ EventBridge ──► Lambda (shared image)
 
 **Daily digest:** fetch → deterministic filter → Haiku digest (prompt cache) → tier-1 eval → Sonnet judge → adopt-only-if-clean revise → enqueue → drain.
 
-**Weekly deepdive:** MCP archive → planner → researchers (`web_search` + allowlisted `fetch_url`) → synthesizer → editor → revise → deliver. Fixed multi-**role** DAG (not a self-replanning multi-agent swarm).
+**Weekly deepdive:** MCP archive → planner → researchers in parallel(`researchFanOut`, `web_search` + allowlisted `fetch_url`) → synthesizer → editor → revise → deliver. Fixed multi-**role** DAG (not a self-replanning multi-agent swarm).
 
 ## AI techniques (literature ↔ code)
 
@@ -41,6 +41,7 @@ EventBridge ──► Lambda (shared image)
 |-----------|--------|
 | Deterministic pre-filter | `projects/twitter-digest/filter.go` (+ offline `auto rank-backtest`; live ranking swap frozen) |
 | RAG-lite (lexical retrieve) | `projects/weekly-deepdive/retrieve.go` — top‑K English digest sections into researcher prompt |
+| Parallel researcher fan-out | `research_fanout.go` + `serial_tools.go` — concurrent research, fail-fast, MCP mutex |
 | Context minimization | `slimTweets` — shared ground truth for digest / judge / revise |
 | Prompt as contract | `## Topic` headers + `(@handle url)` citations |
 | Structured output | Forced submit tools / agent `OutputTool` + JSON Schema; Go validates |
@@ -70,4 +71,4 @@ EventBridge ──► Lambda (shared image)
 
 ## What’s next (idea shelf)
 
-Ordered in the [north-star roadmap](decisions/2026-07-06-north-star-agentic-roadmap.md): finish ranking-budget filter → RAG-lite → parallel researcher fan-out → orchestrator that re-plans → queue ops tooling.
+Ordered in the [north-star roadmap](decisions/2026-07-06-north-star-agentic-roadmap.md): ranking-budget (frozen) → RAG-lite (done) → parallel fan-out (done) → **orchestrator that re-plans** → queue ops tooling.

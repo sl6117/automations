@@ -127,10 +127,12 @@ Capstones first (portfolio freeze after these), then orchestration depth, then o
 3. **RAG-lite** (DONE 2026-08-07): lexical retrieve over English digest artifacts →
    top‑K sections injected into researcher prompts (`retrieve.go`). No embeddings;
    archive text is hint-only — web corroboration still required for `corroborated=true`.
-4. **Parallel researcher fan-out** (latency skill): same fixed DAG, run researcher
+4. **Parallel researcher fan-out** (DONE 2026-08-08) (latency skill): same fixed DAG, run researcher
    roles concurrently with bounded concurrency — production orchestration practice
    without changing topology. Depends on ranking-budget/RAG-lite not blocking; tools
    already solid enough.
+   `researchFanOut` runs capped questions concurrently (fail-fast cancel, `Allowlist.Clone`, serialized MCP
+   via `serialTools`). Same fixed DAG - latency skill, not topology change. Commit `9e96ecf`.
 5. **Orchestrator that re-plans** (true multi-agent): host may spawn/drop research
    questions or re-route after editor/gate signals. Requires solid tools + eval first
    (action-space lesson); do after parallel fan-out so concurrency and contracts are
