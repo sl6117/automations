@@ -18,19 +18,22 @@ import (
 	"github.com/sl6117/automations/pkg/sinks"
 )
 
-// pipelineChat plays back canned responses in order: planner, researcher(s),
-// synthesizer, editor. Unlike revise_test's scriptedChat it carries usage and
-// content blocks, which the agent loop and the cost log both need.
-// A call past the end of the script is a test failure surfaced as a chat error.
+// pipelineChat plays back canned responses in order for the deepdive DAG
+// (planner → researcher(s) → synth → editor → optional replan → revise…).
+// Unlike revise_test's scriptedChat it carries usage and content blocks, which
+// the agent loop and the cost log both need. A call past the end of the script
+// is a test failure surfaced as a chat error.
 type pipelineChat struct {
 	responses []ai.ChatResponse
 	calls     int
 	mu        sync.Mutex
+	reqs      []ai.ChatRequest // optional: last requests, for assertions
 }
 
 func (s *pipelineChat) Chat(ctx context.Context, req ai.ChatRequest) (ai.ChatResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.reqs = append(s.reqs, req)
 	if s.calls >= len(s.responses) {
 		return ai.ChatResponse{}, fmt.Errorf("unexpected chat call %d (script has %d)", s.calls+1, len(s.responses))
 	}
@@ -186,25 +189,28 @@ func TestRunLogsCostForWholePipeline(t *testing.T) {
 	}
 }
 
-// When the editor fails and the revise loop runs, its tokens are real spend
-// and must land in the cost log too. Script: the four pipeline roles with a
-// failing editor verdict, then the revise pass (re-synthesize + re-edit).
+// When the editor fails, replan runs before revise (config.json replanBudget=1).
+// Empty newResearchQuestions means "research won't help" → fall through to revise.
+// Script: pipeline + failing editor + empty replan + revise + re-edit pass.
 func TestRunCostIncludesReviseLoopTokens(t *testing.T) {
 	script := pipelineScript()
 	script[3] = toolSubmitResponse(editorSubmitTool, `{"pass": false, "failures": ["claim missing hedge label"]}`, 400, 40)
+	replanEmpty := `{"newResearchQuestions":[],"rationale":"Failures are hedge-only; revise the brief"}`
 	revised := `{
 		"title": "FIFA's extra year, hedged",
 		"summary": "The date change is confirmed by the linked article.",
 		"sections": [{"heading": "What happened", "body": "The article confirms it."}]
 	}`
 	script = append(script,
+		toolSubmitResponse(replanSubmitTool, replanEmpty, 50, 5),
 		toolSubmitResponse(synthSubmitTool, revised, 500, 50),
 		toolSubmitResponse(editorSubmitTool, `{"pass": true, "failures": []}`, 600, 60),
 	)
 
 	store := &storage.FS{Root: t.TempDir()}
+	chat := &pipelineChat{responses: script}
 	p := &project{
-		chat:  &pipelineChat{responses: script},
+		chat:  chat,
 		tools: pipelineTools{},
 		now:   fixedNow,
 		sinks: []sinks.Sink{&captureSink{}},
@@ -212,6 +218,14 @@ func TestRunCostIncludesReviseLoopTokens(t *testing.T) {
 	}
 	if err := p.Run(context.Background(), pipelineRuntime(t)); err != nil {
 		t.Fatal(err)
+	}
+
+	// Call order: plan, research, synth, editor, replan, revise-synth, re-edit
+	if chat.calls != 7 {
+		t.Fatalf("chat calls = %d, want 7 (replan before revise)", chat.calls)
+	}
+	if chat.reqs[4].ToolChoice == nil || chat.reqs[4].ToolChoice.Name != replanSubmitTool {
+		t.Errorf("5th call ToolChoice = %+v, want forced %s", chat.reqs[4].ToolChoice, replanSubmitTool)
 	}
 
 	data, err := store.Get(context.Background(), obs.CostLogKey)
@@ -222,9 +236,71 @@ func TestRunCostIncludesReviseLoopTokens(t *testing.T) {
 	if err := json.Unmarshal(data, &run); err != nil {
 		t.Fatalf("parse cost log line %q: %v", data, err)
 	}
-	// base pipeline 1000/100 + revise 500/50 + re-edit 600/60
-	if run.InputTokens != 2100 || run.OutputTokens != 210 {
-		t.Errorf("tokens = %d in / %d out, want 2100 / 210 (revise loop tokens must be counted)", run.InputTokens, run.OutputTokens)
+	// base 1000/100 + replan 50/5 + revise 500/50 + re-edit 600/60
+	if run.InputTokens != 2150 || run.OutputTokens != 215 {
+		t.Errorf("tokens = %d in / %d out, want 2150 / 215 (replan + revise must be counted)", run.InputTokens, run.OutputTokens)
+	}
+}
+
+// Editor fail → replan proposes a new question → second research wave → synth/edit pass.
+// Proves the additive research path (not only empty→revise).
+func TestRunReplanAddsResearchThenPasses(t *testing.T) {
+	script := pipelineScript()
+	script[3] = toolSubmitResponse(editorSubmitTool, `{"pass": false, "failures": ["price impact never researched"]}`, 400, 40)
+	replanAdd := `{"newResearchQuestions":["How did oil prices move after the announcement?"],"rationale":"Editor flagged a missing angle"}`
+	report2 := `{
+		"question": "How did oil prices move after the announcement?",
+		"findings": ["Brent rose 2% the next session."],
+		"sources": ["https://example.com/oil"],
+		"corroborated": true
+	}`
+	brief2 := `{
+		"title": "FIFA's extra year",
+		"summary": "Date change confirmed; oil moved 2% (reported context).",
+		"sections": [{"heading": "What happened", "body": "The article confirms it. Brent rose 2%."}]
+	}`
+	script = append(script,
+		toolSubmitResponse(replanSubmitTool, replanAdd, 50, 5),
+		toolSubmitResponse(researcherSubmitTool, report2, 200, 20),
+		toolSubmitResponse(synthSubmitTool, brief2, 300, 30),
+		toolSubmitResponse(editorSubmitTool, `{"pass": true, "failures": []}`, 400, 40),
+	)
+
+	store := &storage.FS{Root: t.TempDir()}
+	chat := &pipelineChat{responses: script}
+	sink := &captureSink{}
+	p := &project{
+		chat:  chat,
+		tools: pipelineTools{},
+		now:   fixedNow,
+		sinks: []sinks.Sink{sink},
+		store: store,
+	}
+	if err := p.Run(context.Background(), pipelineRuntime(t)); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.messages) != 1 {
+		t.Fatalf("delivered %d messages, want 1", len(sink.messages))
+	}
+	// plan, research1, synth, editor, replan, research2, synth2, editor2
+	if chat.calls != 8 {
+		t.Fatalf("chat calls = %d, want 8", chat.calls)
+	}
+
+	data, err := store.Get(context.Background(), obs.CostLogKey)
+	if err != nil {
+		t.Fatalf("read cost log: %v", err)
+	}
+	var run obs.Run
+	if err := json.Unmarshal(data, &run); err != nil {
+		t.Fatalf("parse cost log: %v", err)
+	}
+	if run.ItemCount != 2 {
+		t.Errorf("itemCount = %d, want 2 research reports after replan append", run.ItemCount)
+	}
+	// 1000/100 + replan 50/5 + research2 200/20 + synth2 300/30 + editor2 400/40
+	if run.InputTokens != 1950 || run.OutputTokens != 195 {
+		t.Errorf("tokens = %d in / %d out, want 1950 / 195", run.InputTokens, run.OutputTokens)
 	}
 }
 

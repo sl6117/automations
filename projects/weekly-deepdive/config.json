@@ -1,5 +1,7 @@
 {
     "deliverTo": ["telegram", "console"],
     "maxResearchQuestions": 3,
-    "reviseBudget": 1
+    "reviseBudget": 1,
+    "replanBudget": 1,
+    "maxReplanQuestions": 2
   }

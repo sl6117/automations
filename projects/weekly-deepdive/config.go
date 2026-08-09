@@ -12,7 +12,9 @@ import (
 type Config struct {
 	DeliverTo            []string `json:"deliverTo"`
 	MaxResearchQuestions int      `json:"maxResearchQuestions"`
-	ReviseBudget         int      `json:"reviseBudget"` // revision passes when the editor fails; 0 = loop off
+	ReviseBudget         int      `json:"reviseBudget"`       // revision passes when the editor fails; 0 = loop off
+	ReplanBudget         int      `json:"replanBudget"`       // replan passes when the editor fails; 0 = loop off
+	MaxReplanQuestions   int      `json:"maxReplanQuestions"` // max questions to add when replanning
 }
 
 // maxQuestions is the research fan-out cap; absent/0 falls back to the default cost guard.
@@ -21,6 +23,20 @@ func (c Config) maxQuestions() int {
 		return c.MaxResearchQuestions
 	}
 	return maxResearchQuestions
+}
+
+func (c Config) replanRounds() int {
+	if c.ReplanBudget > 0 {
+		return c.ReplanBudget
+	}
+	return 0
+}
+
+func (c Config) replanQuestionCap() int {
+	if c.MaxReplanQuestions > 0 {
+		return c.MaxReplanQuestions
+	}
+	return 0
 }
 
 // selectSinks builds delivery sinks from config.

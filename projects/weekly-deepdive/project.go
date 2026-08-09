@@ -69,6 +69,10 @@ func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
 	if err != nil {
 		return fmt.Errorf("read editor prompt: %w", err)
 	}
+	replanSys, err := os.ReadFile(filepath.Join(rt.ProjectDir, "prompts", "replan.md"))
+	if err != nil {
+		return fmt.Errorf("read replan prompt: %w", err)
+	}
 
 	chat := p.chat
 	if chat == nil {
@@ -181,7 +185,8 @@ func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
 	// }
 
 	serial := &serialTools{inner: tools}
-	reports, researchUsage, err := researchFanOut(ctx, questions, func(ctx context.Context, i int, q string) (researchResult, error) {
+	runOne := func(ctx context.Context, i int, q string) (researchResult, error) {
+
 		query := plan.Story + " " + q
 		archiveBlock, err := retrieveDigestContext(ctx, serial, now().AddDate(0, 0, -7), query, ragTopK, ragMaxChars)
 		if err != nil {
@@ -208,7 +213,9 @@ func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
 			i+1, report.Corroborated, len(report.Findings), len(report.Sources),
 			rres.ToolTurns, rres.Usage.InputTokens, rres.Usage.OutputTokens)
 		return researchResult{Report: report, Usage: rres.Usage, Truncated: rres.Truncated}, nil
-	})
+
+	}
+	reports, researchUsage, err := researchFanOut(ctx, questions, runOne)
 	if err != nil {
 		return err
 	}
@@ -249,6 +256,48 @@ func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
 	rt.Log.Printf("editor:\n%s", edOut)
 	rt.Log.Printf("editor: pass=%v failures=%d (%d in / %d out tokens)",
 		edReport.Pass, len(edReport.Failures), edUsage.InputTokens, edUsage.OutputTokens)
+	asked := append([]string(nil), questions...)
+	if !edReport.Pass && cfg.replanRounds() > 0 && cfg.replanQuestionCap() > 0 {
+		for round := 1; round <= cfg.replanRounds() && !edReport.Pass; round++ {
+			rp, rusage, rerr := replanOnce(ctx, chat, string(replanSys), plan.Story, asked, reports, edReport.Failures)
+			total.InputTokens += rusage.InputTokens
+			total.OutputTokens += rusage.OutputTokens
+			if rerr != nil {
+				rt.Log.Printf("replan round %d: %v; falling through to revise", round, rerr)
+				break
+			}
+			rt.Log.Printf("replan round %d: rationale=%q proposed=%d", round, rp.Rationale, len(rp.NewResearchQuestions))
+			newQs := filterReplanQuestions(asked, rp.NewResearchQuestions, cfg.replanQuestionCap())
+			if len(newQs) == 0 {
+				rt.Log.Printf("replan round %d: no new questions; revise next", round)
+				break
+			}
+			rt.Log.Printf("replan round %d: researching %d new question(s)", round, len(newQs))
+			more, mu, merr := researchFanOut(ctx, newQs, runOne)
+			total.InputTokens += mu.InputTokens
+			total.OutputTokens += mu.OutputTokens
+			total.CacheCreationInputTokens += mu.CacheCreationInputTokens
+			total.CacheReadInputTokens += mu.CacheReadInputTokens
+			if merr != nil {
+				return merr // research hard-fail (same as first wave)
+			}
+			reports = append(reports, more...)
+			asked = append(asked, newQs...)
+			brief, usage, err = synthesize(ctx, chat, synthesizerModel, string(synthesizerSys), plan, reports)
+			if err != nil {
+				return err
+			}
+			total.InputTokens += usage.InputTokens
+			total.OutputTokens += usage.OutputTokens
+			edReport, edUsage, err = editBrief(ctx, chat, string(editorSys), brief, reports)
+			if err != nil {
+				return err
+			}
+			total.InputTokens += edUsage.InputTokens
+			total.OutputTokens += edUsage.OutputTokens
+			rt.Log.Printf("replan round %d: editor pass=%v failures=%d", round, edReport.Pass, len(edReport.Failures))
+		}
+	}
 	if !edReport.Pass && cfg.ReviseBudget > 0 {
 		var rusage ai.Usage
 		brief, edReport, rusage = runReviseLoop(ctx, chat, string(synthesizerSys), string(editorSys), plan, reports, brief, edReport, cfg.ReviseBudget, rt.Log)
