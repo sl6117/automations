@@ -144,40 +144,78 @@ func (p *project) Run(ctx context.Context, rt *runner.Runtime) error {
 			allow.Allow(u)
 		}
 	}
-	researchTools := agent.GatedFetch{Inner: tools, Allow: allow}
+	// researchTools := agent.GatedFetch{Inner: tools, Allow: allow}
 
-	for i, q := range questions {
+	// serial version. Leaving this on purpose for reference.
+	// for i, q := range questions {
+	// 	query := plan.Story + " " + q
+	// 	archiveBlock, err := retrieveDigestContext(ctx, tools, now().AddDate(0, 0, -7), query, ragTopK, ragMaxChars)
+	// 	if err != nil {
+	// 		return fmt.Errorf("retrieve digest context: %w", err)
+	// 	}
+	// 	rt.Log.Printf("research %d archive context: %d bytes", i+1, len(archiveBlock))
+
+	// 	rt.Log.Printf("research %d/%d: %s", i+1, len(questions), q)
+	// 	report, rres, err := researchOne(ctx, agent.Config{
+	// 		Client: chat, Tools: researchTools, Model: researcherModel,
+	// 		System: string(researcherSys), MaxTokens: researcherMaxTokens, MaxToolTurns: roleMaxToolTurns,
+	// 		WebSearchMaxUses: researcherWebSearchMaxUses,
+	// 		FetchAllowlist:   allow,
+	// 		OnToolCall:       onTool,
+	// 		PromptCache:      true,
+	// 	}, plan.Story, q, seedBlock, archiveBlock)
+	// 	if err != nil {
+	// 		return fmt.Errorf("research %q: %w", q, err)
+	// 	}
+	// 	if rres.Truncated {
+	// 		rt.Log.Printf("research %d truncated (budget); accepting parsed report if any", i+1)
+	// 	}
+	// 	reports = append(reports, report)
+	// 	total.InputTokens += rres.Usage.InputTokens
+	// 	total.OutputTokens += rres.Usage.OutputTokens
+	// 	total.CacheCreationInputTokens += rres.Usage.CacheCreationInputTokens
+	// 	total.CacheReadInputTokens += rres.Usage.CacheReadInputTokens
+	// 	rt.Log.Printf("research %d: corroborated=%v findings=%d sources=%d (%d turns, %d in / %d out)",
+	// 		i+1, report.Corroborated, len(report.Findings), len(report.Sources),
+	// 		rres.ToolTurns, rres.Usage.InputTokens, rres.Usage.OutputTokens)
+	// }
+
+	serial := &serialTools{inner: tools}
+	reports, researchUsage, err := researchFanOut(ctx, questions, func(ctx context.Context, i int, q string) (researchResult, error) {
 		query := plan.Story + " " + q
-		archiveBlock, err := retrieveDigestContext(ctx, tools, now().AddDate(0, 0, -7), query, ragTopK, ragMaxChars)
+		archiveBlock, err := retrieveDigestContext(ctx, serial, now().AddDate(0, 0, -7), query, ragTopK, ragMaxChars)
 		if err != nil {
-			return fmt.Errorf("retrieve digest context: %w", err)
+			return researchResult{}, fmt.Errorf("retrieve digest context: %w", err)
 		}
 		rt.Log.Printf("research %d archive context: %d bytes", i+1, len(archiveBlock))
-
 		rt.Log.Printf("research %d/%d: %s", i+1, len(questions), q)
+		allowI := allow.Clone()
 		report, rres, err := researchOne(ctx, agent.Config{
-			Client: chat, Tools: researchTools, Model: researcherModel,
+			Client: chat, Tools: agent.GatedFetch{Inner: serial, Allow: allowI}, Model: researcherModel,
 			System: string(researcherSys), MaxTokens: researcherMaxTokens, MaxToolTurns: roleMaxToolTurns,
 			WebSearchMaxUses: researcherWebSearchMaxUses,
-			FetchAllowlist:   allow,
+			FetchAllowlist:   allowI,
 			OnToolCall:       onTool,
 			PromptCache:      true,
 		}, plan.Story, q, seedBlock, archiveBlock)
 		if err != nil {
-			return fmt.Errorf("research %q: %w", q, err)
+			return researchResult{}, fmt.Errorf("research %q: %w", q, err)
 		}
 		if rres.Truncated {
 			rt.Log.Printf("research %d truncated (budget); accepting parsed report if any", i+1)
 		}
-		reports = append(reports, report)
-		total.InputTokens += rres.Usage.InputTokens
-		total.OutputTokens += rres.Usage.OutputTokens
-		total.CacheCreationInputTokens += rres.Usage.CacheCreationInputTokens
-		total.CacheReadInputTokens += rres.Usage.CacheReadInputTokens
 		rt.Log.Printf("research %d: corroborated=%v findings=%d sources=%d (%d turns, %d in / %d out)",
 			i+1, report.Corroborated, len(report.Findings), len(report.Sources),
 			rres.ToolTurns, rres.Usage.InputTokens, rres.Usage.OutputTokens)
+		return researchResult{Report: report, Usage: rres.Usage, Truncated: rres.Truncated}, nil
+	})
+	if err != nil {
+		return err
 	}
+	total.InputTokens += researchUsage.InputTokens
+	total.OutputTokens += researchUsage.OutputTokens
+	total.CacheCreationInputTokens += researchUsage.CacheCreationInputTokens
+	total.CacheReadInputTokens += researchUsage.CacheReadInputTokens
 
 	reportOut, err := json.MarshalIndent(reports, "", " ")
 	if err != nil {

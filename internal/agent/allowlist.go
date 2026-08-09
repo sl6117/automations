@@ -77,6 +77,19 @@ func (a *Allowlist) AddFromContent(blocks []ai.ContentBlock) {
 	}
 }
 
+// Clone returns a shallow copy so paralel researchers can mutate their own
+// search-result allowlists without racing on the seed set.
+func (a *Allowlist) Clone() *Allowlist {
+	if a == nil {
+		return nil
+	}
+	out := NewAllowlist()
+	for u := range a.urls {
+		out.urls[u] = true
+	}
+	return out
+}
+
 func normalizeFetchURL(raw string) string {
 	return strings.TrimRight(strings.TrimSpace(raw), ".,;:!?)\"")
 }

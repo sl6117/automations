@@ -149,3 +149,26 @@ func TestRunAllowlistsSearchResultsBeforeFetch(t *testing.T) {
 		t.Errorf("inner calls = %v, want the allowlisted fetch to proceed", inner.calls)
 	}
 }
+
+func TestAllowlistCloneIndependent(t *testing.T) {
+	a := NewAllowlist()
+	a.Allow("https://example.com/seed")
+	b := a.Clone()
+	b.Allow("https://example.com/from-search")
+	if !a.Allowed("https://example.com/seed") {
+		t.Fatal("original lost seed")
+	}
+	if a.Allowed("https://example.com/from-search") {
+		t.Fatal("clone write must not mutate original")
+	}
+	if !b.Allowed("https://example.com/seed") || !b.Allowed("https://example.com/from-search") {
+		t.Fatal("clone should have seed + new URL")
+	}
+}
+
+func TestAllowlistCloneNil(t *testing.T) {
+	var a *Allowlist
+	if a.Clone() != nil {
+		t.Fatal("nil clone should be nil")
+	}
+}

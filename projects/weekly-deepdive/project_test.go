@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,9 +25,12 @@ import (
 type pipelineChat struct {
 	responses []ai.ChatResponse
 	calls     int
+	mu        sync.Mutex
 }
 
 func (s *pipelineChat) Chat(ctx context.Context, req ai.ChatRequest) (ai.ChatResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.calls >= len(s.responses) {
 		return ai.ChatResponse{}, fmt.Errorf("unexpected chat call %d (script has %d)", s.calls+1, len(s.responses))
 	}
