@@ -11,7 +11,7 @@ Rules:
 
 Submit the brief by calling the submit_brief tool:
 - title (string)
-- summary (string): short ledge; hedge as needed
+- summary (string): short lede; hedge as needed
 - sections (non-empty array of {heading, body})
 
 No tools. Use only the provided plan and reports.

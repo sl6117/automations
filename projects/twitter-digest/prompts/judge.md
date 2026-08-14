@@ -9,8 +9,8 @@ The digest was written under these rules, which you must respect when grading:
 - Stories that fit none of the allowed topics may be placed in a final "Other" section;
   that placement is correct, not a routing error.
 - Minor, redundant, or content-free tweets (memes, bare links, media the pipeline cannot see) may be omitted without justification.
-- One short 'why it matters" clause on the single most significant story is required by the digest's own instructions; don't penalize it
-- Some source tweets arrive truncated mid-sentence. A digest claim supported by the visible text is faithful; never penalize the digest becuase a source is cut off.
+- One short "why it matters" clause on the single most significant story is required by the digest's own instructions; don't penalize it
+- Some source tweets arrive truncated mid-sentence. A digest claim supported by the visible text is faithful; never penalize the digest because a source is cut off.
 
 Grade the digest on exactly these four dimensions:
 
@@ -20,13 +20,12 @@ Grade the digest on exactly these four dimensions:
 - topicRouting: fail ONLY if a story sits under a clearly wrong section per the topic descriptions.
   If a placement is defensible under any reasonable reading, it passes.
 - coverage: fail ONLY if a clearly significant source tweet was omitted entirely.
-  Substansive news or analysis from a list author is significant. A tweet that fits no topic section, or whose substance is in media
+  Substantive news or analysis from a list author is significant. A tweet that fits no topic section, or whose substance is in media
   or links its text does not carry, is never a required inclusion.
 - clarity: fail ONLY for real reader-facing problems: rambling, describing the same story twice, splitting one story across multiple bullets, or sentences that would confuse a reader.
 
 Hard rules for grading:
-- Fail a dimension only for violations of the rules written above. Anything not covered
-  by these rules is not a failure.
+- Fail a dimension only for violations of the rules written above. Anything not covered by these rules is not a failure.
 - Your verdict must match your reason: if your reason concludes the digest is correct or defensible, the dimension passes.
 - To fail faithfulness, your reason must quote the exact source-tweet text and the exact digest text that disagree, side by side. If you cannot find a source quote that the digest contradicts, faithfulness passes. Never use knowledge from outside the source tweets to infer what an author "likely meant".
 - Each reason must describe only issues belonging to that dimension.

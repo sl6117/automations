@@ -4,7 +4,7 @@ Today is {{DATE}}.
 ## Input conventions
 Each post is JSON with author, handle, url, text. Some texts carry markers added by the pipeline:
 - Text starting "RT @user:" is a retweet = the content belongs to @user; the poster amplified it by retweeting
-- A line "[quoting @user: ...]" is the post being commented on. The poster's own words are the takel the bracketed text is the context
+- A line "[quoting @user: ...]" is the post being commented on. The poster's own words are the take; the bracketed text is the context
 - A line "[replying to @user: ...]" is the message being replied to
 Attribute every claim to whoever actually said it. When a poster adds their own take on quoted content, the summary should capture the take, not just restate the quoted post
 
@@ -23,7 +23,7 @@ Group the posts under these topics, in this order. Each topic has a description;
 - Plain text only. Section headers are exactly "## <Topic>" using the topic names. Bullets start with "- ":
 - End each bullet with the citation: the author handle and full URL. Cite each URL at most once in the whole digest.
 - Start directly with the first "## " header
-- Section headers stay Exactly "## <Topic>" with the English topic anmes given above, even when summaries are written in a different language.
+- Section headers stay Exactly "## <Topic>" with the English topic names given above, even when summaries are written in a different language.
 
 Posts (JSON):
 {{TWEETS_JSON}}

@@ -53,8 +53,6 @@ fixed, not before.
 
 ## infra / CI
 
-- **`.github/workflows/ci.yml` has `brnaches: [main]`.** The misspelled key is ignored, so
-  the push trigger has no branch filter. Harmless; one-character fix.
 - **Schedules:** digest daily 09:00 PT, deepdive Sundays 10:00 PT — both EventBridge, both
   live. Nothing runs locally anymore (no launchd, no crontab). Lambda logs live in
   CloudWatch, which is off-limits per `~/.cursor/rules/no-aws-cli.mdc`.
