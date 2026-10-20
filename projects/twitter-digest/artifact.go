@@ -14,20 +14,22 @@ import (
 // Artifact preserves eerything needed to re-inspect (or later re-judge)
 // one run: the exact inputs the model saw and the exact output it gave
 type Artifact struct {
-	Timestamp       string          `json:"ts"`
-	Model           string          `json:"model"`
-	Kept            []sources.Tweet `json:"kept"`
-	Language        string          `json:"language"`
-	Digest          string          `json:"digest"`
-	InputTokens     int             `json:"inputTokens"`
-	OutputTokens    int             `json:"outputTokens"`
-	Truncated       bool            `json:"truncated,omitempty"`
-	EvalFailures    []string        `json:"evalFailures"`
-	EvalCoverage    string          `json:"evalCoverage"`
-	Judge           *JudgeReport    `json:"judge,omitempty"`
-	JudgeError      string          `json:"judgeError,omitempty"`
-	InitialJudge    *JudgeReport    `json:"initialJudge,omitempty"`
-	RevisionAdopted bool            `json:"revisionAdopted,omitempty"`
+	Timestamp       string             `json:"ts"`
+	Model           string             `json:"model"`
+	Kept            []sources.Tweet    `json:"kept"`
+	Language        string             `json:"language"`
+	Digest          string             `json:"digest"`
+	InputTokens     int                `json:"inputTokens"`
+	OutputTokens    int                `json:"outputTokens"`
+	Truncated       bool               `json:"truncated,omitempty"`
+	EvalFailures    []string           `json:"evalFailures"`
+	EvalCoverage    string             `json:"evalCoverage"`
+	Judge           *JudgeReport       `json:"judge,omitempty"`
+	JudgeError      string             `json:"judgeError,omitempty"`
+	InitialJudge    *JudgeReport       `json:"initialJudge,omitempty"`
+	RevisionAdopted bool               `json:"revisionAdopted,omitempty"`
+	Jev             map[string]float64 `json:"jev,omitempty"`
+	JevError        string             `json:"jevError,omitempty"`
 }
 
 // saveArtifact writes one artifact per run under logs/runs/ via the

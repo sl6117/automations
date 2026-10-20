@@ -16,6 +16,7 @@ type ToolDef struct {
 	Name        string
 	Description string
 	InputSchema json.RawMessage
+	Strict      bool // Anthropic strict tool use. Sonnet 5.5 needs this when tool_choice is auto.
 }
 
 // WebSearchToolType is Anthropic's basic server-side web search. TheAPI runs the search;
@@ -59,7 +60,8 @@ type ChatRequest struct {
 	Tools       []ToolDef
 	ServerTools []ServerTool
 	MaxTokens   int
-	Temperature float64
+	Temperature *float64
+	Thinking    string // same meaning as Request.Thinking
 	// PromptCache enables Anthropic automatic prompt caching (top-level cache_control)
 	// The API advances the breakpoint as the conversation grows
 	// the win for multi-turn agent loops. Haiku 4.5 needs >= 4096
@@ -116,20 +118,25 @@ type anthropicWireTool struct {
 	Description string          `json:"description,omitempty"`
 	InputSchema json.RawMessage `json:"input_schema,omitempty"`
 	MaxUses     int             `json:"max_uses,omitempty"`
+	Strict      bool            `json:"strict,omitempty"`
 }
 
 type anthropicCacheControl struct {
 	Type string `json:"type"`
 }
+type anthropicThinking struct {
+	Type string `json:"type"`
+}
 type anthropicChatRequest struct {
 	Model        string                 `json:"model"`
 	MaxTokens    int                    `json:"max_tokens"`
-	Temperature  float64                `json:"temperature"`
+	Temperature  *float64               `json:"temperature,omitempty"`
 	System       string                 `json:"system,omitempty"`
 	Messages     []anthropicWireMessage `json:"messages"`
 	Tools        []anthropicWireTool    `json:"tools,omitempty"`
 	CacheControl *anthropicCacheControl `json:"cache_control,omitempty"`
 	ToolChoice   *anthropicToolChoice   `json:"tool_choice,omitempty"`
+	Thinking     *anthropicThinking     `json:"thinking,omitempty"`
 }
 
 type anthropicToolChoice struct {
@@ -159,11 +166,16 @@ func (a Anthropic) Chat(ctx context.Context, req ChatRequest) (ChatResponse, err
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 60 * time.Second}
 	}
+	var thinking *anthropicThinking
+	if req.Thinking != "" {
+		thinking = &anthropicThinking{Type: req.Thinking}
+	}
 	wire := anthropicChatRequest{
 		Model:       req.Model,
 		MaxTokens:   req.MaxTokens,
 		Temperature: req.Temperature,
 		System:      req.System,
+		Thinking:    thinking,
 	}
 	for _, m := range req.Messages {
 		wm := anthropicWireMessage{Role: m.Role}
@@ -177,7 +189,7 @@ func (a Anthropic) Chat(ctx context.Context, req ChatRequest) (ChatResponse, err
 		wire.Messages = append(wire.Messages, wm)
 	}
 	for _, t := range req.Tools {
-		wire.Tools = append(wire.Tools, anthropicWireTool{Name: t.Name, Description: t.Description, InputSchema: t.InputSchema})
+		wire.Tools = append(wire.Tools, anthropicWireTool{Name: t.Name, Description: t.Description, InputSchema: t.InputSchema, Strict: t.Strict})
 	}
 	for _, t := range req.ServerTools {
 		wire.Tools = append(wire.Tools, anthropicWireTool{Type: t.Type, Name: t.Name, MaxUses: t.MaxUses})

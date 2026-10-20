@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	judgeTemperature = 0.0
-	judgeMaxTokens   = 1500
+	// judgeTemperature = 0.0
+	judgeMaxTokens = 1500
 )
 
 type Verdict struct {
@@ -79,10 +79,10 @@ func judgeDigest(ctx context.Context, client ai.Client, model, projectDir string
 	}
 
 	resp, err := client.Complete(ctx, ai.Request{
-		Model:       model,
-		Prompt:      prompt,
-		MaxTokens:   judgeMaxTokens,
-		Temperature: judgeTemperature,
+		Model:     model,
+		Prompt:    prompt,
+		MaxTokens: judgeMaxTokens,
+		Thinking:  "between_tools",
 	})
 	if err != nil {
 		return report, ai.Usage{}, fmt.Errorf("judge via %s: %w", model, err)

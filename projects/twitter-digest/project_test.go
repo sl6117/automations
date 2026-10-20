@@ -137,7 +137,7 @@ func TestProjectRunLLM(t *testing.T) {
 	if fake.gotReqs[0].Model != "claude-haiku-4-5" {
 		t.Errorf("model = %q, want config model", fake.gotReqs[0].Model)
 	}
-	if last := fake.gotReqs[len(fake.gotReqs)-1].Model; last != "claude-sonnet-4-5" {
+	if last := fake.gotReqs[len(fake.gotReqs)-1].Model; last != "claude-sonnet-5-5" {
 		t.Errorf("judge model = %q, want config judgeModel", last)
 	}
 

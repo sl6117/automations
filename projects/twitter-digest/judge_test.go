@@ -45,8 +45,8 @@ func TestJudgeParsesCleanVerdictsAndUsesJudgeSettings(t *testing.T) {
 	if usage.InputTokens != 100 || usage.OutputTokens != 50 {
 		t.Errorf("usage not passed through: %+v", usage)
 	}
-	if fake.gotReq.Temperature != judgeTemperature || fake.gotReq.MaxTokens != judgeMaxTokens {
-		t.Errorf("judge sent digest settings, want temp=%v maxTokens=%v, got %+v", judgeTemperature, judgeMaxTokens, fake.gotReq)
+	if fake.gotReq.Temperature != nil || fake.gotReq.MaxTokens != judgeMaxTokens || fake.gotReq.Thinking != "between_tools" {
+		t.Errorf("judge settings: temp=%v maxTokens=%d thinking=%q, want temp omitted and maxTokens=%d", fake.gotReq.Temperature, fake.gotReq.MaxTokens, fake.gotReq.Thinking, judgeMaxTokens)
 	}
 }
 func TestJudgeToleratesFencedResponse(t *testing.T) {

@@ -182,6 +182,8 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 		if !runTime.DryRun {
 			var judge *JudgeReport
 			var initialJudge *JudgeReport
+			var jevScores map[string]float64
+			jevErr := ""
 			revisionAdopted := false
 			judgeErr := ""
 			jclient, cerr := p.resolveClient(cfg)
@@ -222,6 +224,17 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 					runTime.Log.Printf("[twitter-digest] revision adopted (%s); eval: %s", lang, coverage)
 				}
 			}
+			if key := os.Getenv("JEV_API_KEY"); key != "" {
+				scores, err := jevShadow(ctx, ai.Jev{APIKey: key}, cfg.Topics, kept, message, lang)
+				if err != nil {
+					jevErr = err.Error()
+					runTime.Log.Printf("[twitter-digest] jev error (%s): %v", lang, err)
+				} else {
+					jevScores = scores
+					runTime.Log.Printf("[twitter-digest] jev (%s): faithfulness=%.2f topicRouting=%.2f coverage=%.2f clarity=%.2f",
+						lang, scores["faithfulness"], scores["topicRouting"], scores["coverage"], scores["clarity"])
+				}
+			}
 
 			if err := saveArtifact(ctx, store, Artifact{
 				Model:           cfg.Model,
@@ -237,6 +250,8 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 				JudgeError:      judgeErr,
 				InitialJudge:    initialJudge,
 				RevisionAdopted: revisionAdopted,
+				Jev:             jevScores,
+				JevError:        jevErr,
 			}); err != nil {
 				return fmt.Errorf("save artifact: %w", err)
 			}
@@ -432,7 +447,7 @@ func (p *project) digest(ctx context.Context, runTime *runner.Runtime, cfg Confi
 		Model:       cfg.Model,
 		System:      system,
 		Prompt:      prompt,
-		Temperature: digestTemperature,
+		Temperature: ai.Temp(digestTemperature),
 		MaxTokens:   digestMaxTokens,
 		PromptCache: true,
 	})

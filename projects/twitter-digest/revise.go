@@ -47,7 +47,7 @@ func reviseDigest(ctx context.Context, client ai.Client, model, projectDir strin
 		Model:       model,
 		Prompt:      prompt,
 		MaxTokens:   digestMaxTokens,
-		Temperature: digestTemperature,
+		Temperature: ai.Temp(digestTemperature),
 	})
 	if err != nil {
 		return "", resp.Usage, fmt.Errorf("revise via %s: %w", model, err)

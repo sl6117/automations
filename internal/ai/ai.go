@@ -30,10 +30,11 @@ type Request struct {
 	System      string // system prompt (optional)
 	Prompt      string // user prompt
 	MaxTokens   int
-	Temperature float64
+	Temperature *float64
 	// PromptCache asks Anthropic Complete to put cache_control on the system
 	// block when System is non-empty. Off by default; OpenRouter ignores it.
 	PromptCache bool
+	Thinking    string // "between_tools" turns off up-front thinking on Sonnet 5.5. Empty omits the field.
 }
 
 // Response is the model's reply plus accounting metadata.
@@ -48,3 +49,7 @@ type Response struct {
 type Client interface {
 	Complete(ctx context.Context, req Request) (Response, error)
 }
+
+// Temp keeps a value, including 0, so the field is still sent.
+// A nil Temperature omits the field.
+func Temp(v float64) *float64 { return &v }

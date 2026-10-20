@@ -35,9 +35,10 @@ type anthropicSystemBlock struct {
 type anthropicRequest struct {
 	Model       string             `json:"model"`
 	MaxTokens   int                `json:"max_tokens"`
-	Temperature float64            `json:"temperature"`
+	Temperature *float64           `json:"temperature,omitempty"`
 	System      any                `json:"system,omitempty"`
 	Messages    []anthropicMessage `json:"messages"`
+	Thinking    *anthropicThinking `json:"thinking,omitempty"`
 }
 
 type anthropicResponse struct {
@@ -79,6 +80,10 @@ func (a Anthropic) Complete(ctx context.Context, req Request) (Response, error) 
 		}
 	}
 
+	var thinking *anthropicThinking
+	if req.Thinking != "" {
+		thinking = &anthropicThinking{Type: req.Thinking}
+	}
 	body, err := json.Marshal(anthropicRequest{
 		Model:       req.Model,
 		MaxTokens:   req.MaxTokens,
@@ -87,6 +92,7 @@ func (a Anthropic) Complete(ctx context.Context, req Request) (Response, error) 
 		Messages: []anthropicMessage{
 			{Role: "user", Content: req.Prompt},
 		},
+		Thinking: thinking,
 	})
 
 	if err != nil {

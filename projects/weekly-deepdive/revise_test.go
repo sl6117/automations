@@ -26,13 +26,24 @@ func (s *scriptedChat) Chat(ctx context.Context, req ai.ChatRequest) (ai.ChatRes
 	}
 	reply := s.replies[s.calls]
 	s.calls++
+	toolName := ""
 	if req.ToolChoice != nil && req.ToolChoice.Type == "tool" {
+		toolName = req.ToolChoice.Name
+	} else {
+		for _, tool := range req.Tools {
+			if tool.Strict {
+				toolName = tool.Name
+				break
+			}
+		}
+	}
+	if toolName != "" {
 		return ai.ChatResponse{
 			StopReason: "tool_use",
 			Content: []ai.ContentBlock{{
 				Type:  "tool_use",
 				ID:    "tu_script",
-				Name:  req.ToolChoice.Name,
+				Name:  toolName,
 				Input: json.RawMessage(reply),
 			}},
 		}, nil

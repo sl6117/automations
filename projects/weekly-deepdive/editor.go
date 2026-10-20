@@ -9,9 +9,8 @@ import (
 )
 
 const (
-	editorModel      = "claude-sonnet-4-5"
+	editorModel      = "claude-sonnet-5-5"
 	editorMaxTokens  = 1500
-	editorTemp       = 0.0
 	editorSubmitTool = "submit_editor_report"
 )
 
@@ -24,7 +23,8 @@ var editorReportSchema = json.RawMessage(`{
 		"items": {"type": "string"}
 	  }
 	},
-	"required": ["pass", "failures"]
+	"required": ["pass", "failures"],
+	"additionalProperties": false
   }`)
 
 // EditorReport is the editor contract gate. Failures are high-precision
@@ -55,10 +55,11 @@ func editBrief(ctx context.Context, client ai.ChatClient, system string, brief B
 			Name:        editorSubmitTool,
 			Description: "Submit the editor contract verdict for this brief",
 			InputSchema: editorReportSchema,
+			Strict:      true,
 		}},
-		ToolChoice:  &ai.ToolChoice{Type: "tool", Name: editorSubmitTool},
-		MaxTokens:   editorMaxTokens,
-		Temperature: editorTemp,
+		ToolChoice: &ai.ToolChoice{Type: "auto"},
+		MaxTokens:  editorMaxTokens,
+		Thinking:   "between_tools",
 	})
 	if err != nil {
 		return EditorReport{}, ai.Usage{}, fmt.Errorf("edit: %w", err)

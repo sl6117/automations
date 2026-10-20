@@ -73,14 +73,17 @@ func TestEditBriefUsesForcedSubmitTool(t *testing.T) {
 	if usage.InputTokens != 11 || usage.OutputTokens != 3 {
 		t.Errorf("usage = %+v, want 11/3 from the fake", usage)
 	}
-	if chat.got.ToolChoice == nil || chat.got.ToolChoice.Type != "tool" || chat.got.ToolChoice.Name != editorSubmitTool {
-		t.Errorf("ToolChoice = %+v, want forced %s", chat.got.ToolChoice, editorSubmitTool)
+	if chat.got.ToolChoice == nil || chat.got.ToolChoice.Type != "auto" || chat.got.ToolChoice.Name != "" {
+		t.Errorf("ToolChoice = %+v, want auto with no name", chat.got.ToolChoice)
 	}
-	if len(chat.got.Tools) != 1 || chat.got.Tools[0].Name != editorSubmitTool {
-		t.Errorf("Tools = %+v, want only %s", chat.got.Tools, editorSubmitTool)
+	if !chat.got.Tools[0].Strict {
+		t.Errorf("editor tool Strict = false, want true")
 	}
-	if !strings.Contains(string(chat.got.Tools[0].InputSchema), `"pass"`) {
-		t.Errorf("InputSchema = %s, want pass/failures schema", chat.got.Tools[0].InputSchema)
+	if chat.got.Thinking != "between_tools" {
+		t.Errorf("Thinking = %q, want between_tools", chat.got.Thinking)
+	}
+	if !strings.Contains(string(chat.got.Tools[0].InputSchema), `"additionalProperties": false`) {
+		t.Errorf("InputSchema missing additionalProperties: false: %s", chat.got.Tools[0].InputSchema)
 	}
 	if strings.Contains(chat.got.Messages[0].Content[0].Text, "ONLY a JSON") {
 		t.Errorf("user prompt still asks for prose JSON: %q", chat.got.Messages[0].Content[0].Text)

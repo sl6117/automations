@@ -85,7 +85,7 @@ func replanOnce(ctx context.Context, client ai.ChatClient, system, story string,
 		}},
 		ToolChoice:  &ai.ToolChoice{Type: "tool", Name: replanSubmitTool},
 		MaxTokens:   replanMaxTokens,
-		Temperature: replanTemp,
+		Temperature: ai.Temp(replanTemp),
 	})
 	if err != nil {
 		return Replan{}, ai.Usage{}, fmt.Errorf("replan: %w", err)
