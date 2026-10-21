@@ -3,20 +3,64 @@ package twitterdigest
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/sl6117/automations/internal/ai"
 	"github.com/sl6117/automations/pkg/sources"
 )
 
-// jevQuestions are the Sonnet judge's four dimensions, asked as yes/no.
-// P(yes) means the dimension passes.
-func jevQuestions() map[string]string {
-	return map[string]string{
-		"faithfulness": "Fail only if the digest changes a fact (number, name, date, tense, attribution, certainty, or scope), adds interpretation beyond one why-it-matters clause, or cites a claim to a tweet that does not contain it. Does faithfulness pass?",
-		"topicRouting": "Fail only if a story sits under a clearly wrong section. A defensible placement passes. Does topic routing pass?",
-		"coverage":     "Fail only if a clearly significant source tweet was omitted entirely. Minor, redundant, or content-free tweets may be omitted. Does coverage pass?",
-		"clarity":      "Fail only for rambling, describing the same story twice, splitting one story across bullets, or a sentence that would confuse a reader. Does clarity pass?",
+// jevScaleDefect marks rollup values as P(defect). Older artifacts omit the
+// field and stored P(pass) on the same four dimension names.
+const jevScaleDefect = "defect"
+
+// jevScore is one Jev call. Detail is P(yes) on each defect question.
+// Rollup is the worst defect in each dimension, which is what a threshold would read.
+type jevScore struct {
+	Rollup map[string]float64
+	Detail map[string]float64
+}
+
+type digestBullet struct {
+	Section string
+	Text    string
+}
+
+// digestBullets returns each "- " line with the ## section it sits under.
+func digestBullets(digest string) []digestBullet {
+	var out []digestBullet
+	section := ""
+	for _, line := range strings.Split(digest, "\n") {
+		if strings.HasPrefix(line, "## ") {
+			section = strings.TrimSpace(strings.TrimPrefix(line, "## "))
+			continue
+		}
+		trimmed := strings.TrimSpace(line)
+		if section != "" && strings.HasPrefix(trimmed, "- ") {
+			out = append(out, digestBullet{Section: section, Text: strings.TrimPrefix(trimmed, "- ")})
+		}
 	}
+	return out
+}
+
+// jevQuestions asks one defect per bullet, one for a story split across bullets,
+// and one per source tweet for a concrete event the digest never mentions.
+// A high answer means the defect is present.
+func jevQuestions(topics []Topic, kept []sources.Tweet, digest string) map[string]string {
+	q := map[string]string{}
+	for i, b := range digestBullets(digest) {
+		id := fmt.Sprintf("b%d", i)
+		quoted := fmt.Sprintf("Bullet under %q: %s", b.Section, b.Text)
+		q[id+"_fact"] = quoted + "\nDoes this bullet state a number, name, date, or place that its cited tweet does not?"
+		q[id+"_cite"] = quoted + "\nDoes this bullet cite a tweet that does not contain the claim?"
+		q[id+"_attr"] = quoted + "\nDoes this bullet state, as the digest's own fact, something its cited tweet only attributes to someone else?"
+		q[id+"_section"] = "Allowed topics:\n" + topicList(topics) + "\n" + quoted + "\nIs this bullet in a section the topic list rules out? A defensible section, including Other, is a no."
+		q[id+"_merged"] = quoted + "\nDoes this bullet join two unrelated events?"
+	}
+	q["split"] = "Does the digest tell the same event in more than one bullet?"
+	for i, t := range kept {
+		q[fmt.Sprintf("t%d_missing", i)] = fmt.Sprintf("Tweet by %s: %s\nDoes this tweet state a concrete event that no digest bullet mentions? A duplicate, a meme, or a bare link is a no.", t.Handle, t.Text)
+	}
+	return q
 }
 
 func jevState(topics []Topic, kept []sources.Tweet, digest, language string) (string, error) {
@@ -28,11 +72,37 @@ func jevState(topics []Topic, kept []sources.Tweet, digest, language string) (st
 		language, topicList(topics), tweetsJSON, digest), nil
 }
 
-// jevShadow asks Jev for P(pass) on each dimension. The caller logs a failure and still delivers.
-func jevShadow(ctx context.Context, client ai.Jev, topics []Topic, kept []sources.Tweet, digest, language string) (map[string]float64, error) {
+// jevRollup reduces the defect questions to the four dimensions. Each value is
+// the highest P(defect) among the questions for that dimension.
+func jevRollup(detail map[string]float64) map[string]float64 {
+	maxOf := func(match func(string) bool) float64 {
+		var worst float64
+		for name, score := range detail {
+			if match(name) && score > worst {
+				worst = score
+			}
+		}
+		return worst
+	}
+	return map[string]float64{
+		"faithfulness": maxOf(func(name string) bool {
+			return strings.HasSuffix(name, "_fact") || strings.HasSuffix(name, "_cite") || strings.HasSuffix(name, "_attr")
+		}),
+		"topicRouting": maxOf(func(name string) bool { return strings.HasSuffix(name, "_section") }),
+		"coverage":     maxOf(func(name string) bool { return strings.HasSuffix(name, "_missing") }),
+		"clarity":      maxOf(func(name string) bool { return name == "split" || strings.HasSuffix(name, "_merged") }),
+	}
+}
+
+// jevShadow asks Jev for P(defect) on each bullet and tweet. The caller logs a failure and still delivers.
+func jevShadow(ctx context.Context, client ai.Jev, topics []Topic, kept []sources.Tweet, digest, language string) (jevScore, error) {
 	state, err := jevState(topics, kept, digest, language)
 	if err != nil {
-		return nil, err
+		return jevScore{}, err
 	}
-	return client.Nouls(ctx, state, jevQuestions())
+	detail, err := client.Nouls(ctx, state, jevQuestions(topics, kept, digest))
+	if err != nil {
+		return jevScore{}, err
+	}
+	return jevScore{Rollup: jevRollup(detail), Detail: detail}, nil
 }

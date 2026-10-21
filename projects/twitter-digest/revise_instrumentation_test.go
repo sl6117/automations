@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sl6117/automations/internal/ai"
 	"github.com/sl6117/automations/internal/queue"
 	"github.com/sl6117/automations/internal/runner"
 	"github.com/sl6117/automations/internal/storage"
@@ -26,8 +27,14 @@ import (
 // part of the system we could not measure.
 func runForFunnel(t *testing.T, verdicts []string) Artifact {
 	t.Helper()
+	return runFunnel(t, verdicts, ai.Jev{})
+}
+
+func runFunnel(t *testing.T, verdicts []string, jev ai.Jev) Artifact {
+	t.Helper()
 	root := t.TempDir()
 	t.Setenv("AUTOMATION_ROOT", root)
+	t.Setenv("JEV_API_KEY", "")
 	dir := filepath.Join(root, "projects", "twitter-digest")
 	if err := os.MkdirAll(filepath.Join(dir, "prompts"), 0o755); err != nil {
 		t.Fatal(err)
@@ -49,6 +56,7 @@ func runForFunnel(t *testing.T, verdicts []string) Artifact {
 		source: sources.Mock{},
 		store:  &storage.FS{Root: root},
 		jobs:   queue.NewMemory(),
+		jev:    jev,
 		sinkFor: func(sub Subscriber, cfg Config, rt *runner.Runtime) (sinks.Sink, error) {
 			return &fakeSink{}, nil
 		},

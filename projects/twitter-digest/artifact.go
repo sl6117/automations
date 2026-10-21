@@ -14,22 +14,29 @@ import (
 // Artifact preserves eerything needed to re-inspect (or later re-judge)
 // one run: the exact inputs the model saw and the exact output it gave
 type Artifact struct {
-	Timestamp       string             `json:"ts"`
-	Model           string             `json:"model"`
-	Kept            []sources.Tweet    `json:"kept"`
-	Language        string             `json:"language"`
-	Digest          string             `json:"digest"`
-	InputTokens     int                `json:"inputTokens"`
-	OutputTokens    int                `json:"outputTokens"`
-	Truncated       bool               `json:"truncated,omitempty"`
-	EvalFailures    []string           `json:"evalFailures"`
-	EvalCoverage    string             `json:"evalCoverage"`
-	Judge           *JudgeReport       `json:"judge,omitempty"`
-	JudgeError      string             `json:"judgeError,omitempty"`
-	InitialJudge    *JudgeReport       `json:"initialJudge,omitempty"`
-	RevisionAdopted bool               `json:"revisionAdopted,omitempty"`
-	Jev             map[string]float64 `json:"jev,omitempty"`
-	JevError        string             `json:"jevError,omitempty"`
+	Timestamp       string          `json:"ts"`
+	Model           string          `json:"model"`
+	Kept            []sources.Tweet `json:"kept"`
+	Language        string          `json:"language"`
+	Digest          string          `json:"digest"`
+	InputTokens     int             `json:"inputTokens"`
+	OutputTokens    int             `json:"outputTokens"`
+	Truncated       bool            `json:"truncated,omitempty"`
+	EvalFailures    []string        `json:"evalFailures"`
+	EvalCoverage    string          `json:"evalCoverage"`
+	Judge           *JudgeReport    `json:"judge,omitempty"`
+	JudgeError      string          `json:"judgeError,omitempty"`
+	InitialJudge    *JudgeReport    `json:"initialJudge,omitempty"`
+	RevisionAdopted bool            `json:"revisionAdopted,omitempty"`
+	// JevScale is "defect" when Jev and InitialJev are P(defect) rollups.
+	// Older artifacts omit it and stored P(pass) on the same four names.
+	JevScale         string             `json:"jevScale,omitempty"`
+	Jev              map[string]float64 `json:"jev,omitempty"`
+	JevDetail        map[string]float64 `json:"jevDetail,omitempty"`
+	JevError         string             `json:"jevError,omitempty"`
+	InitialJev       map[string]float64 `json:"initialJev,omitempty"`
+	InitialJevDetail map[string]float64 `json:"initialJevDetail,omitempty"`
+	InitialJevError  string             `json:"initialJevError,omitempty"`
 }
 
 // saveArtifact writes one artifact per run under logs/runs/ via the

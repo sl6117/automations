@@ -40,9 +40,46 @@ type project struct {
 	store   storage.Store
 	jobs    queue.Queue
 	alert   sinks.Sink
+	jev     ai.Jev // tests set APIKey and BaseURL; production leaves this empty and uses JEV_API_KEY
 }
 
 func (p *project) Name() string { return "twitter-digest" }
+
+// jevClient uses the injected client in tests. Production reads JEV_API_KEY and skips the call when it is empty.
+func (p *project) jevClient() (ai.Jev, bool) {
+	if p.jev.APIKey != "" {
+		return p.jev, true
+	}
+	key := os.Getenv("JEV_API_KEY")
+	if key == "" {
+		return ai.Jev{}, false
+	}
+	return ai.Jev{APIKey: key}, true
+}
+
+// scoreJev records P(defect) for one digest text. kind is "draft" for the first draft and empty for the sent digest.
+// A failure is returned as a string and logged; it does not stop the run.
+func scoreJev(ctx context.Context, runTime *runner.Runtime, client ai.Jev, cfg Config, kept []sources.Tweet, digest, lang, kind string) (jevScore, string) {
+	label := "jev"
+	if kind != "" {
+		label = "jev " + kind
+	}
+	scored, err := jevShadow(ctx, client, cfg.Topics, kept, digest, lang)
+	if err != nil {
+		runTime.Log.Printf("[twitter-digest] %s error (%s): %v", label, lang, err)
+		return jevScore{}, err.Error()
+	}
+	runTime.Log.Printf("[twitter-digest] %s defect (%s): faithfulness=%.2f topicRouting=%.2f coverage=%.2f clarity=%.2f",
+		label, lang, scored.Rollup["faithfulness"], scored.Rollup["topicRouting"], scored.Rollup["coverage"], scored.Rollup["clarity"])
+	return scored, ""
+}
+
+func jevScale(sent, draft jevScore) string {
+	if sent.Rollup == nil && draft.Rollup == nil {
+		return ""
+	}
+	return jevScaleDefect
+}
 
 func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 	var cfg Config
@@ -180,10 +217,13 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 			runTime.Log.Printf("[twitter-digest] eval failure (%s): %s", lang, f)
 		}
 		if !runTime.DryRun {
+			draft := message
 			var judge *JudgeReport
 			var initialJudge *JudgeReport
-			var jevScores map[string]float64
+			var jevScores jevScore
+			var initialJev jevScore
 			jevErr := ""
+			initialJevErr := ""
 			revisionAdopted := false
 			judgeErr := ""
 			jclient, cerr := p.resolveClient(cfg)
@@ -224,34 +264,36 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 					runTime.Log.Printf("[twitter-digest] revision adopted (%s); eval: %s", lang, coverage)
 				}
 			}
-			if key := os.Getenv("JEV_API_KEY"); key != "" {
-				scores, err := jevShadow(ctx, ai.Jev{APIKey: key}, cfg.Topics, kept, message, lang)
-				if err != nil {
-					jevErr = err.Error()
-					runTime.Log.Printf("[twitter-digest] jev error (%s): %v", lang, err)
+			if client, ok := p.jevClient(); ok {
+				initialJev, initialJevErr = scoreJev(ctx, runTime, client, cfg, kept, draft, lang, "draft")
+				if message == draft {
+					jevScores, jevErr = initialJev, initialJevErr
 				} else {
-					jevScores = scores
-					runTime.Log.Printf("[twitter-digest] jev (%s): faithfulness=%.2f topicRouting=%.2f coverage=%.2f clarity=%.2f",
-						lang, scores["faithfulness"], scores["topicRouting"], scores["coverage"], scores["clarity"])
+					jevScores, jevErr = scoreJev(ctx, runTime, client, cfg, kept, message, lang, "")
 				}
 			}
 
 			if err := saveArtifact(ctx, store, Artifact{
-				Model:           cfg.Model,
-				Language:        lang,
-				Kept:            kept,
-				Digest:          message,
-				InputTokens:     usage.InputTokens,
-				OutputTokens:    usage.OutputTokens,
-				Truncated:       truncated,
-				EvalFailures:    failures,
-				EvalCoverage:    coverage,
-				Judge:           judge,
-				JudgeError:      judgeErr,
-				InitialJudge:    initialJudge,
-				RevisionAdopted: revisionAdopted,
-				Jev:             jevScores,
-				JevError:        jevErr,
+				Model:            cfg.Model,
+				Language:         lang,
+				Kept:             kept,
+				Digest:           message,
+				InputTokens:      usage.InputTokens,
+				OutputTokens:     usage.OutputTokens,
+				Truncated:        truncated,
+				EvalFailures:     failures,
+				EvalCoverage:     coverage,
+				Judge:            judge,
+				JudgeError:       judgeErr,
+				InitialJudge:     initialJudge,
+				RevisionAdopted:  revisionAdopted,
+				JevScale:         jevScale(jevScores, initialJev),
+				Jev:              jevScores.Rollup,
+				JevDetail:        jevScores.Detail,
+				JevError:         jevErr,
+				InitialJev:       initialJev.Rollup,
+				InitialJevDetail: initialJev.Detail,
+				InitialJevError:  initialJevErr,
 			}); err != nil {
 				return fmt.Errorf("save artifact: %w", err)
 			}
