@@ -2,9 +2,9 @@
 
 **Date:** 2026-07-06
 **Status:** build sequence COMPLETE (steps 1-9, finished 2026-07-25). This doc stays as the
-standing statement of intent and working agreements; active work now comes off the idea
-shelf below, currently the input-quality arc (curate the X list, engagement rubric,
-corroboration labelling).
+standing statement of intent and working agreements. Active work is the Jev defect
+cascade (idea shelf #6, design in `2026-10-21-jev-defect-cascade.md`). Critic-triggered
+replan stays in progress; its selective trigger is bite 5 of that cascade.
 
 ## The goal
 
@@ -140,9 +140,16 @@ Capstones first (portfolio freeze after these), then orchestration depth, then o
    questions, fan-out, append reports, synth/edit again, then text revise. v1 is
    append-only + budgets (`replanBudget`, `maxReplanQuestions`); not an open swarm.
    Design: `docs/decisions/2026-08-08-deepdive-critic-triggered-replan.md`.
-6. Dead-letter requeue tooling (`auto queue ls` / `requeue`) — queue operations depth;
+6. **Jev defect cascade** (APPROVED 2026-10-21, next): Jev P(defect) on atomic
+   questions routes the day. Go picks one localized repair from the question id.
+   Sonnet stays the adopt gate. Thresholds stay off until a read-through. Bite 0
+   compares scaled magnitudes in `eval.go` (`1.5억` matches `$150 million`) and does
+   not change delivery. Bite 5 is the deepdive
+   selective trigger (report gate before synth, replan vs revise after the editor).
+   Design: `docs/decisions/2026-10-21-jev-defect-cascade.md`.
+7. Dead-letter requeue tooling (`auto queue ls` / `requeue`) — queue operations depth;
    needs a careful fresh session, touches production queue data.
-7. Video/linked-media enrichment (post-roadmap).
+8. Video/linked-media enrichment (post-roadmap).
 
 ## The portfolio story this produces
 

@@ -59,6 +59,9 @@ func TestJevScoresDraftOnceWhenTextIsUnchanged(t *testing.T) {
 	if a.InitialJevError != "" || a.JevError != "" {
 		t.Errorf("errors = %q %q, want empty", a.InitialJevError, a.JevError)
 	}
+	if a.JevRoute != "send" {
+		t.Errorf("jevRoute = %q, want send when every draft defect is 0.2", a.JevRoute)
+	}
 }
 
 func TestJevScoresDraftAndSentDigestSeparately(t *testing.T) {
@@ -94,6 +97,9 @@ func TestJevScoresDraftAndSentDigestSeparately(t *testing.T) {
 	if !a.RevisionAdopted {
 		t.Error("revisionAdopted = false, want the revised digest to have shipped")
 	}
+	if a.JevRoute != "send" {
+		t.Errorf("jevRoute = %q, want send from the draft score 0.11, not the sent score", a.JevRoute)
+	}
 }
 
 func TestJevDraftErrorDoesNotBlockSentScore(t *testing.T) {
@@ -114,6 +120,9 @@ func TestJevDraftErrorDoesNotBlockSentScore(t *testing.T) {
 	}
 	if a.Jev["faithfulness"] != 0.88 || a.JevError != "" {
 		t.Errorf("sent jev = %v error = %q, want the revised digest scored", a.Jev, a.JevError)
+	}
+	if a.JevRoute != "escalate" {
+		t.Errorf("jevRoute = %q, want escalate when the draft call fails", a.JevRoute)
 	}
 }
 
@@ -179,4 +188,47 @@ func TestJevRollupIsZeroWithoutQuestions(t *testing.T) {
 type aiBody struct {
 	State     string         `json:"state"`
 	Questions map[string]any `json:"questions"`
+}
+
+func TestJevRoute(t *testing.T) {
+	cases := []struct {
+		name  string
+		score jevScore
+		err   string
+		want  string
+	}{
+		{name: "no call", want: ""},
+		{name: "error", err: "unavailable", want: "escalate"},
+		{
+			name: "send",
+			score: jevScore{
+				Rollup: map[string]float64{"faithfulness": 0.2, "topicRouting": 0.1, "coverage": 0, "clarity": 0.2},
+				Detail: map[string]float64{"b0_fact": 0.2, "split": 0.1},
+			},
+			want: "send",
+		},
+		{
+			name: "repair lists the clear defects in order",
+			score: jevScore{
+				Rollup: map[string]float64{"faithfulness": 0.91, "topicRouting": 0.1, "coverage": 0.9, "clarity": 0.85},
+				Detail: map[string]float64{"b1_cite": 0.91, "b0_fact": 0.4, "split": 0.85, "t2_missing": 0.9},
+			},
+			want: "repair:b1_cite,split,t2_missing",
+		},
+		{
+			name: "middle band",
+			score: jevScore{
+				Rollup: map[string]float64{"faithfulness": 0.5, "topicRouting": 0.1, "coverage": 0, "clarity": 0.1},
+				Detail: map[string]float64{"b0_fact": 0.5},
+			},
+			want: "escalate",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := jevRoute(tc.score, tc.err); got != tc.want {
+				t.Errorf("jevRoute = %q, want %q", got, tc.want)
+			}
+		})
+	}
 }

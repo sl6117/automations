@@ -272,6 +272,9 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 					jevScores, jevErr = scoreJev(ctx, runTime, client, cfg, kept, message, lang, "")
 				}
 			}
+			if route := jevRoute(initialJev, initialJevErr); route != "" {
+				runTime.Log.Printf("[twitter-digest] jev route (%s): %s", lang, route)
+			}
 
 			if err := saveArtifact(ctx, store, Artifact{
 				Model:            cfg.Model,
@@ -294,6 +297,7 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 				InitialJev:       initialJev.Rollup,
 				InitialJevDetail: initialJev.Detail,
 				InitialJevError:  initialJevErr,
+				JevRoute:         jevRoute(initialJev, initialJevErr),
 			}); err != nil {
 				return fmt.Errorf("save artifact: %w", err)
 			}

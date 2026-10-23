@@ -31,7 +31,7 @@ EventBridge ──► Lambda (shared image)
 
 ## Pipeline shapes
 
-**Daily digest:** fetch → deterministic filter → Haiku digest (prompt cache) → tier-1 eval → Sonnet judge → adopt-only-if-clean revise → enqueue → drain.
+**Daily digest:** fetch → deterministic filter → Haiku digest (prompt cache) → tier-1 eval → Sonnet judge → adopt-only-if-clean revise → Jev defect shadow (does not gate) → enqueue → drain. The shadow records P(defect) per bullet and per source tweet (`jevshadow.go`, `jevScale: "defect"`). Routing those scores is the next arc, not current delivery.
 
 **Weekly deepdive:** MCP archive → planner → researchers in parallel (`researchFanOut`, `web_search` + allowlisted `fetch_url`) → synthesizer → editor → (optional **critic-triggered replan**: more research → synth/edit) → text revise → deliver. Host-orchestrated multi-**role** DAG with a bounded conditional edge — not an open agent swarm.
 
@@ -46,7 +46,8 @@ EventBridge ──► Lambda (shared image)
 | Prompt as contract | `## Topic` headers + `(@handle url)` citations |
 | Structured output | Forced submit tools / agent `OutputTool` + JSON Schema; Go validates |
 | Two-tier eval | `eval.go` then LLM judge |
-| LLM-as-judge | Sonnet, temp 0, separate `judgeModel` |
+| LLM-as-judge | Sonnet, separate `judgeModel`; still the adopt gate |
+| Jev defect shadow | `jevshadow.go` — one call, P(defect) per bullet and tweet. Rollups do not gate. Older artifacts without `jevScale` stored P(pass) on the same four names |
 | Generator–critic / Reflexion | `revise.go` (digest + deepdive), **adopt-only-if-clean** — text refine, same evidence |
 | Critic-triggered replan | Deepdive (building): editor fail → add research Qs → fan-out → append → synth/edit; see [decision](decisions/2026-08-08-deepdive-critic-triggered-replan.md) |
 | Fail-open quality | Judge/revise errors never blank the inbox |
@@ -72,4 +73,6 @@ EventBridge ──► Lambda (shared image)
 
 ## What’s next (idea shelf)
 
-Ordered in the [north-star roadmap](decisions/2026-07-06-north-star-agentic-roadmap.md): ranking-budget (frozen) → RAG-lite (done) → parallel fan-out (done) → **critic-triggered replan** (building) → queue ops tooling. Further replan depth (selective trigger, drop/replace Qs, open supervisor): [decision doc](decisions/2026-08-08-deepdive-critic-triggered-replan.md).
+Ordered in the [north-star roadmap](decisions/2026-07-06-north-star-agentic-roadmap.md): ranking-budget (frozen) → RAG-lite (done) → parallel fan-out (done) → critic-triggered replan (building) → **Jev defect cascade** (approved, next) → queue ops tooling.
+
+The cascade: [Jev defect cascade](decisions/2026-10-21-jev-defect-cascade.md). Go routes on question ids. Sonnet still adopts. Bite 0 compares scaled magnitudes in `eval.go`, so a translated unit may change the digits. The deepdive selective trigger (replan vs revise) is bite 5 of that same plan. Further replan depth (drop/replace questions, open supervisor) stays in the [replan decision](decisions/2026-08-08-deepdive-critic-triggered-replan.md).

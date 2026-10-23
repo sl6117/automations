@@ -6,7 +6,7 @@ A small, reusable "automation OS" written in Go: one runner binary, pluggable au
 behind a single interface, and shared adapters for data sources, LLM providers, and delivery channels.
 Built as a learning project with production habits - tests, cost logging, run artifacts, and deterministic evals.
 
-**Project #1 — `twitter-digest`:** a daily 9am PT Twitter/X list briefing. Posts are fetched, filtered in plain code before the model sees them, summarized into topic sections by Claude Haiku, checked by a deterministic eval plus an LLM judge, and routed to subscribers — each with their own delivery channel (Telegram / email), topic selection, and output language.
+**Project #1 — `twitter-digest`:** a daily 9am PT Twitter/X list briefing. Posts are fetched, filtered in plain code before the model sees them, summarized into topic sections by Claude Haiku, checked by a deterministic eval plus a Sonnet judge, and routed to subscribers — each with their own delivery channel (Telegram / email), topic selection, and output language. A Jev shadow records per-bullet defect probabilities on the draft. It does not change what ships.
 
 **Project #2 — `weekly-deepdive`:** a Sunday 10am PT multi-agent brief. Reads the week's digest archive over MCP, a planner picks the biggest story, researchers corroborate with web search + fetch, a synthesizer writes a long-form brief, and an editor gate checks contract compliance (hedges on uncorroborated claims) before delivery.
 
@@ -88,7 +88,7 @@ the fetch cursor advances after enqueue, and a DynamoDB job queue drains leftove
 
 ## Roadmap
 
-Build sequence steps 1–9 are complete (see `docs/decisions/2026-07-06-north-star-agentic-roadmap.md`). Active work comes off the idea shelf: input-quality (list curation / ranking), agent-quality (schema-forced structured output across deepdive roles), and queue ops tooling.
+Build sequence steps 1–9 are complete (see [`docs/decisions/2026-07-06-north-star-agentic-roadmap.md`](docs/decisions/2026-07-06-north-star-agentic-roadmap.md)). The active arc is idea shelf #6, the Jev defect cascade: defect probabilities route one localized repair, and Sonnet remains the adopt gate. Design and bite order: [`docs/decisions/2026-10-21-jev-defect-cascade.md`](docs/decisions/2026-10-21-jev-defect-cascade.md).
 
 **Stack + AI technique map:** [`docs/stack-and-techniques.md`](docs/stack-and-techniques.md).
 

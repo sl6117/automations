@@ -72,3 +72,75 @@ func TestEvalDigest(t *testing.T) {
 	})
 
 }
+func TestEvalMagnitudes(t *testing.T) {
+	kept := []sources.Tweet{
+		{URL: "https://x.com/a/status/1", Text: "매출 1.5억원"},
+		{URL: "https://x.com/b/status/2", Text: "Revenue grew 20%"},
+		{URL: "https://x.com/c/status/3", Text: "Headcount is 1500"},
+	}
+	topics := []Topic{{Name: "AI"}}
+
+	t.Run("억 matches million", func(t *testing.T) {
+		digest := "## AI\n- Revenue was $150 million (@a https://x.com/a/status/1)"
+		failures, _ := evalDigest(digest, kept, topics)
+		if len(failures) != 0 {
+			t.Errorf("failures = %v, want none", failures)
+		}
+	})
+
+	t.Run("억 does not match billion", func(t *testing.T) {
+		digest := "## AI\n- Revenue was $1.5 billion (@a https://x.com/a/status/1)"
+		failures, _ := evalDigest(digest, kept, topics)
+		if len(failures) != 1 || !strings.Contains(failures[0], "1.5e+09") {
+			t.Errorf("failures = %v, want the 1.5 billion count", failures)
+		}
+	})
+
+	t.Run("percents stay raw", func(t *testing.T) {
+		digest := "## AI\n- 매출이 20% 늘었다 (@b https://x.com/b/status/2)"
+		failures, _ := evalDigest(digest, kept, topics)
+		if len(failures) != 0 {
+			t.Errorf("failures = %v, want none", failures)
+		}
+	})
+
+	t.Run("a shorter count does not match a longer one", func(t *testing.T) {
+		digest := "## AI\n- Headcount is 15 (@c https://x.com/c/status/3)"
+		failures, _ := evalDigest(digest, kept, topics)
+		if len(failures) != 1 || !strings.Contains(failures[0], "magnitude 15") {
+			t.Errorf("failures = %v, want magnitude 15", failures)
+		}
+	})
+	t.Run("digits inside a handle are not counts", func(t *testing.T) {
+		kept := []sources.Tweet{
+			{URL: "https://x.com/Breaking911/status/1", Text: "Revenue grew 20%"},
+		}
+		digest := "## AI\n- Revenue grew 20% (@Breaking911 https://x.com/Breaking911/status/1)"
+		failures, _ := evalDigest(digest, kept, topics)
+		if len(failures) != 0 {
+			t.Errorf("failures = %v, want none (911 is part of the handle)", failures)
+		}
+	})
+
+	t.Run("spaced thousands are one count", func(t *testing.T) {
+		kept := []sources.Tweet{
+			{URL: "https://x.com/p/status/2", Text: "Claims fell to 194 000"},
+		}
+		digest := "## AI\n- Claims fell to 194 000 (@p https://x.com/p/status/2)"
+		failures, _ := evalDigest(digest, kept, topics)
+		if len(failures) != 0 {
+			t.Errorf("failures = %v, want none (194 000 is 194000, not 0)", failures)
+		}
+	})
+
+	t.Run("a status id is not a count", func(t *testing.T) {
+		kept := []sources.Tweet{
+			{URL: "https://x.com/a/status/1", Text: "No figures here"},
+		}
+		digest := "## AI\n- No figures here 2113250177712841069 (@a https://x.com/a/status/1)"
+		failures, _ := evalDigest(digest, kept, topics)
+		if len(failures) != 0 {
+			t.Errorf("failures = %v, want none (19 digits is a status id)", failures)
+		}
+	})
+}

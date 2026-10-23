@@ -37,6 +37,9 @@ type Artifact struct {
 	InitialJev       map[string]float64 `json:"initialJev,omitempty"`
 	InitialJevDetail map[string]float64 `json:"initialJevDetail,omitempty"`
 	InitialJevError  string             `json:"initialJevError,omitempty"`
+	// JevRoute is send, repair:<question ids>, or escalate for the first draft.
+	// Delivery does not read it.
+	JevRoute string `json:"jevRoute,omitempty"`
 }
 
 // saveArtifact writes one artifact per run under logs/runs/ via the

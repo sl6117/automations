@@ -3,6 +3,7 @@ package twitterdigest
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/sl6117/automations/internal/ai"
@@ -12,6 +13,11 @@ import (
 // jevScaleDefect marks rollup values as P(defect). Older artifacts omit the
 // field and stored P(pass) on the same four dimension names.
 const jevScaleDefect = "defect"
+
+const (
+	jevSendAt   = 0.2
+	jevRepairAt = 0.8
+)
 
 // jevScore is one Jev call. Detail is P(yes) on each defect question.
 // Rollup is the worst defect in each dimension, which is what a threshold would read.
@@ -105,4 +111,41 @@ func jevShadow(ctx context.Context, client ai.Jev, topics []Topic, kept []source
 		return jevScore{}, err
 	}
 	return jevScore{Rollup: jevRollup(detail), Detail: detail}, nil
+}
+
+// jevRoute is the cascade decision for one draft score. An empty string means Jev did not score.
+func jevRoute(score jevScore, callErr string) string {
+	if callErr != "" {
+		return "escalate"
+	}
+	if len(score.Detail) == 0 {
+		return ""
+	}
+	var ids []string
+	for name, p := range score.Detail {
+		if p >= jevRepairAt && jevRepairable(name) {
+			ids = append(ids, name)
+		}
+	}
+	if len(ids) > 0 {
+		sort.Strings(ids)
+		return "repair:" + strings.Join(ids, ",")
+	}
+	for _, name := range []string{"faithfulness", "topicRouting", "coverage", "clarity"} {
+		if score.Rollup[name] > jevSendAt {
+			return "escalate"
+		}
+	}
+	return "send"
+}
+func jevRepairable(name string) bool {
+	switch {
+	case name == "split":
+		return true
+	case strings.HasSuffix(name, "_fact"), strings.HasSuffix(name, "_cite"), strings.HasSuffix(name, "_attr"),
+		strings.HasSuffix(name, "_merged"), strings.HasSuffix(name, "_section"), strings.HasSuffix(name, "_missing"):
+		return true
+	default:
+		return false
+	}
 }
