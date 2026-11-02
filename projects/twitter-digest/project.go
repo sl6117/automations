@@ -251,8 +251,17 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 					}
 				}
 			}
+			var jevClient ai.Jev
+			haveJev := false
+			if c, ok := p.jevClient(); ok {
+				jevClient, haveJev = c, true
+				initialJev, initialJevErr = scoreJev(ctx, runTime, jevClient, cfg, kept, draft, lang, "draft")
+			}
 			if judge != nil && cfg.ReviseBudget > 0 && jclient != nil {
-				finalDraft, finalReport, rusage := runReviseLoop(ctx, jclient, cfg, runTime.ProjectDir, kept, message, judge, lang, runTime.Log)
+				if ids := jevFaithIDs(initialJev.Detail); len(ids) > 0 {
+					runTime.Log.Printf("[twitter-digest] jev faith repair (%s): %s", lang, strings.Join(ids, ","))
+				}
+				finalDraft, finalReport, rusage := runReviseLoop(ctx, jclient, cfg, runTime.ProjectDir, kept, message, judge, initialJev.Detail, lang, runTime.Log)
 				total.InputTokens += rusage.InputTokens
 				total.OutputTokens += rusage.OutputTokens
 				if finalDraft != message {
@@ -264,12 +273,11 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 					runTime.Log.Printf("[twitter-digest] revision adopted (%s); eval: %s", lang, coverage)
 				}
 			}
-			if client, ok := p.jevClient(); ok {
-				initialJev, initialJevErr = scoreJev(ctx, runTime, client, cfg, kept, draft, lang, "draft")
+			if haveJev {
 				if message == draft {
 					jevScores, jevErr = initialJev, initialJevErr
 				} else {
-					jevScores, jevErr = scoreJev(ctx, runTime, client, cfg, kept, message, lang, "")
+					jevScores, jevErr = scoreJev(ctx, runTime, jevClient, cfg, kept, message, lang, "")
 				}
 			}
 			if route := jevRoute(initialJev, initialJevErr); route != "" {

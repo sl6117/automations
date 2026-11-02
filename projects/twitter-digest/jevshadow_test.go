@@ -142,7 +142,7 @@ func TestJevShadowAsksEachBulletAndTweet(t *testing.T) {
 				noul = 0.7
 			case "t1_missing":
 				noul = 0.55
-			case "split":
+			case "b0_again":
 				noul = 0.3
 			}
 			answers[name] = map[string]float64{"noul": noul}
@@ -159,16 +159,24 @@ func TestJevShadowAsksEachBulletAndTweet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("jevShadow: %v", err)
 	}
-	if len(got.Questions) != 2*5+1+2 {
-		t.Errorf("asked %d questions, want 13 (5 per bullet, split, 1 per tweet)", len(got.Questions))
+	if len(got.Questions) != 2*6+2 {
+		t.Errorf("asked %d questions, want 14 (6 per bullet, 1 per tweet)", len(got.Questions))
 	}
 	fact, _ := got.Questions["b0_fact"].(map[string]any)
 	if !strings.Contains(fmt.Sprint(fact["instructions"]), "big story") {
 		t.Errorf("b0_fact = %v, want the first bullet quoted", fact)
 	}
+	again, _ := got.Questions["b0_again"].(map[string]any)
+	if !strings.Contains(fmt.Sprint(again["instructions"]), "big story") || !strings.Contains(fmt.Sprint(again["instructions"]), "same event") {
+		t.Errorf("b0_again = %v, want the first bullet and the same-event question", again)
+	}
+	attr, _ := got.Questions["b0_attr"].(map[string]any)
+	if !strings.Contains(fmt.Sprint(attr["instructions"]), "names the speaker") {
+		t.Errorf("b0_attr = %v, want the speaker no", attr)
+	}
 	missing, _ := got.Questions["t1_missing"].(map[string]any)
-	if !strings.Contains(fmt.Sprint(missing["instructions"]), "markets moved") {
-		t.Errorf("t1_missing = %v, want the second tweet quoted", missing)
+	if !strings.Contains(fmt.Sprint(missing["instructions"]), "markets moved") || !strings.Contains(fmt.Sprint(missing["instructions"]), "promotional post") {
+		t.Errorf("t1_missing = %v, want the second tweet and the promo no", missing)
 	}
 	if !strings.Contains(got.State, "AI will be powerful") || !strings.Contains(got.State, "big story") {
 		t.Errorf("state missing tweet or digest: %s", got.State)
@@ -179,9 +187,13 @@ func TestJevShadowAsksEachBulletAndTweet(t *testing.T) {
 }
 
 func TestJevRollupIsZeroWithoutQuestions(t *testing.T) {
-	got := jevRollup(map[string]float64{"split": 0.2})
-	if got["faithfulness"] != 0 || got["coverage"] != 0 || got["clarity"] != 0.2 {
-		t.Errorf("rollup = %v", got)
+	got := jevRollup(map[string]float64{"split": 0.9, "b0_again": 0.9, "b0_attr": 0.74})
+	if got["faithfulness"] != 0 || got["coverage"] != 0 || got["clarity"] != 0 || got["topicRouting"] != 0 {
+		t.Errorf("rollup = %v, want split and attr ignored", got)
+	}
+	kept := jevRollup(map[string]float64{"b1_merged": 0.7, "b0_fact": 0.4})
+	if kept["clarity"] != 0.7 || kept["faithfulness"] != 0.4 {
+		t.Errorf("rollup = %v, want merged and fact", kept)
 	}
 }
 
@@ -213,7 +225,7 @@ func TestJevRoute(t *testing.T) {
 				Rollup: map[string]float64{"faithfulness": 0.91, "topicRouting": 0.1, "coverage": 0.9, "clarity": 0.85},
 				Detail: map[string]float64{"b1_cite": 0.91, "b0_fact": 0.4, "split": 0.85, "t2_missing": 0.9},
 			},
-			want: "repair:b1_cite,split,t2_missing",
+			want: "repair:b1_cite,t2_missing",
 		},
 		{
 			name: "middle band",
@@ -223,6 +235,30 @@ func TestJevRoute(t *testing.T) {
 			},
 			want: "escalate",
 		},
+		{
+			name: "split does not repair or escalate",
+			score: jevScore{
+				Rollup: map[string]float64{"faithfulness": 0.1, "topicRouting": 0.1, "coverage": 0.1, "clarity": 0.1},
+				Detail: map[string]float64{"b0_again": 0.93, "b0_merged": 0.1},
+			},
+			want: "send",
+		},
+		{
+			name: "attr does not repair or escalate",
+			score: jevScore{
+				Rollup: map[string]float64{"faithfulness": 0.1, "topicRouting": 0.1, "coverage": 0.1, "clarity": 0.1},
+				Detail: map[string]float64{"b0_attr": 0.74, "b0_fact": 0.1},
+			},
+			want: "send",
+		},
+		{
+			name: "fact still repairs",
+			score: jevScore{
+				Rollup: map[string]float64{"faithfulness": 0.85, "topicRouting": 0.1, "coverage": 0, "clarity": 0.1},
+				Detail: map[string]float64{"b0_fact": 0.85},
+			},
+			want: "repair:b0_fact",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -230,5 +266,27 @@ func TestJevRoute(t *testing.T) {
 				t.Errorf("jevRoute = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestJevFaithCritiqueUsesFactAndCiteOnly(t *testing.T) {
+	digest := "## Crypto\n- Bitcoin fell below $80,000. @kobeissi https://x.com/KobeissiLetter/status/100"
+	ignored := jevFaithCritique(digest, map[string]float64{
+		"split": 0.93, "b0_attr": 0.90, "b0_section": 0.85, "t0_missing": 0.95, "b0_merged": 0.84,
+	})
+	if ignored != "" {
+		t.Errorf("critique = %q, want empty", ignored)
+	}
+	got := jevFaithCritique(digest, map[string]float64{"b0_fact": 0.85, "b0_cite": 0.40})
+	if !strings.Contains(got, "b0") || !strings.Contains(got, "Bitcoin fell below $80,000") {
+		t.Errorf("critique = %q", got)
+	}
+	kept := []sources.Tweet{
+		{ID: "100", Handle: "@kobeissi", Text: "Bitcoin dropped under 80k"},
+		{ID: "200", Handle: "@other", Text: "unrelated markets note"},
+	}
+	tweets := tweetsForFaithRepair(digest, map[string]float64{"b0_fact": 0.85}, kept)
+	if len(tweets) != 1 || tweets[0].ID != "100" {
+		t.Errorf("tweets = %+v, want the cited tweet only", tweets)
 	}
 }

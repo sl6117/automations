@@ -48,8 +48,8 @@ func digestBullets(digest string) []digestBullet {
 	return out
 }
 
-// jevQuestions asks one defect per bullet, one for a story split across bullets,
-// and one per source tweet for a concrete event the digest never mentions.
+// jevQuestions asks one defect per bullet, one per bullet for the same event
+// told again, and one per source tweet for a news event the digest never mentions.
 // A high answer means the defect is present.
 func jevQuestions(topics []Topic, kept []sources.Tweet, digest string) map[string]string {
 	q := map[string]string{}
@@ -58,13 +58,13 @@ func jevQuestions(topics []Topic, kept []sources.Tweet, digest string) map[strin
 		quoted := fmt.Sprintf("Bullet under %q: %s", b.Section, b.Text)
 		q[id+"_fact"] = quoted + "\nDoes this bullet state a number, name, date, or place that its cited tweet does not?"
 		q[id+"_cite"] = quoted + "\nDoes this bullet cite a tweet that does not contain the claim?"
-		q[id+"_attr"] = quoted + "\nDoes this bullet state, as the digest's own fact, something its cited tweet only attributes to someone else?"
+		q[id+"_attr"] = quoted + "\nDoes this bullet drop who said the claim, so a reader would take it as the digest's own observation? A bullet that names the speaker, or says the claim is according to the source, is a no."
 		q[id+"_section"] = "Allowed topics:\n" + topicList(topics) + "\n" + quoted + "\nIs this bullet in a section the topic list rules out? A defensible section, including Other, is a no."
 		q[id+"_merged"] = quoted + "\nDoes this bullet join two unrelated events?"
+		q[id+"_again"] = quoted + "\nDoes another bullet tell this same event again? A later update, a reaction, or a separate fact from the same place is a no."
 	}
-	q["split"] = "Does the digest tell the same event in more than one bullet?"
 	for i, t := range kept {
-		q[fmt.Sprintf("t%d_missing", i)] = fmt.Sprintf("Tweet by %s: %s\nDoes this tweet state a concrete event that no digest bullet mentions? A duplicate, a meme, or a bare link is a no.", t.Handle, t.Text)
+		q[fmt.Sprintf("t%d_missing", i)] = fmt.Sprintf("Tweet by %s: %s\nDoes this tweet report a news event that no digest bullet mentions? A photo or video caption, a meme, a bare link, a personal note, a nomination list, a promotional post, a market-analysis thread, or a duplicate of a story already covered is a no.", t.Handle, t.Text)
 	}
 	return q
 }
@@ -92,11 +92,11 @@ func jevRollup(detail map[string]float64) map[string]float64 {
 	}
 	return map[string]float64{
 		"faithfulness": maxOf(func(name string) bool {
-			return strings.HasSuffix(name, "_fact") || strings.HasSuffix(name, "_cite") || strings.HasSuffix(name, "_attr")
+			return strings.HasSuffix(name, "_fact") || strings.HasSuffix(name, "_cite")
 		}),
 		"topicRouting": maxOf(func(name string) bool { return strings.HasSuffix(name, "_section") }),
 		"coverage":     maxOf(func(name string) bool { return strings.HasSuffix(name, "_missing") }),
-		"clarity":      maxOf(func(name string) bool { return name == "split" || strings.HasSuffix(name, "_merged") }),
+		"clarity":      maxOf(func(name string) bool { return strings.HasSuffix(name, "_merged") }),
 	}
 }
 
@@ -138,14 +138,126 @@ func jevRoute(score jevScore, callErr string) string {
 	}
 	return "send"
 }
+
+// jevRepairable names the questions that can set a repair: route.
+// _again and _attr stay in the detail and do not route.
 func jevRepairable(name string) bool {
 	switch {
-	case name == "split":
-		return true
-	case strings.HasSuffix(name, "_fact"), strings.HasSuffix(name, "_cite"), strings.HasSuffix(name, "_attr"),
+	case strings.HasSuffix(name, "_fact"), strings.HasSuffix(name, "_cite"),
 		strings.HasSuffix(name, "_merged"), strings.HasSuffix(name, "_section"), strings.HasSuffix(name, "_missing"):
 		return true
 	default:
 		return false
 	}
+}
+
+// jevFaithIDs lists fact and cite questions at or above the repair line, sorted.
+func jevFaithIDs(detail map[string]float64) []string {
+	var ids []string
+	for name, p := range detail {
+		if p >= jevRepairAt && (strings.HasSuffix(name, "_fact") || strings.HasSuffix(name, "_cite")) {
+			ids = append(ids, name)
+		}
+	}
+	sort.Strings(ids)
+	return ids
+}
+func bulletIndex(id string) int {
+	if !strings.HasPrefix(id, "b") {
+		return -1
+	}
+	n := 0
+	digits := 0
+	for _, r := range id[1:] {
+		if r < '0' || r > '9' {
+			break
+		}
+		n = n*10 + int(r-'0')
+		digits++
+	}
+	if digits == 0 {
+		return -1
+	}
+	return n
+}
+
+// jevFaithCritique names the bullets a fact or cite score says to rewrite.
+// An empty string means this draft has nothing for the faithfulness repair.
+func jevFaithCritique(digest string, detail map[string]float64) string {
+	ids := jevFaithIDs(detail)
+	if len(ids) == 0 {
+		return ""
+	}
+	bullets := digestBullets(digest)
+	fact := map[int]bool{}
+	cite := map[int]bool{}
+	var order []int
+	seen := map[int]bool{}
+	for _, id := range ids {
+		n := bulletIndex(id)
+		if n < 0 || n >= len(bullets) {
+			continue
+		}
+		if !seen[n] {
+			seen[n] = true
+			order = append(order, n)
+		}
+		if strings.HasSuffix(id, "_fact") {
+			fact[n] = true
+		}
+		if strings.HasSuffix(id, "_cite") {
+			cite[n] = true
+		}
+	}
+	sort.Ints(order)
+	if len(order) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("Rewrite only the bullets named here. Leave every other bullet unchanged.\n")
+	for _, n := range order {
+		reason := "states a number, name, date, or place its cited tweet does not"
+		switch {
+		case fact[n] && cite[n]:
+			reason = "states a number, name, date, or place its cited tweet does not, and cites a tweet that does not contain the claim"
+		case cite[n]:
+			reason = "cites a tweet that does not contain the claim"
+		}
+		b.WriteString(fmt.Sprintf("b%d (%s): %s\n", n, reason, bullets[n].Text))
+	}
+	return b.String()
+}
+
+// tweetsForFaithRepair keeps the tweets cited by a fact or cite repair.
+// With no such repair, or no status id that matches a kept tweet, the caller still sees
+// every kept tweet.
+func tweetsForFaithRepair(digest string, detail map[string]float64, kept []sources.Tweet) []sources.Tweet {
+	ids := jevFaithIDs(detail)
+	if len(ids) == 0 {
+		return kept
+	}
+	bullets := digestBullets(digest)
+	want := map[string]bool{}
+	for _, id := range ids {
+		n := bulletIndex(id)
+		if n < 0 || n >= len(bullets) {
+			continue
+		}
+		for _, m := range citationID.FindAllStringSubmatch(bullets[n].Text, -1) {
+			want[m[1]] = true
+		}
+	}
+	if len(want) == 0 {
+		return kept
+	}
+	var out []sources.Tweet
+	for _, t := range kept {
+		if want[t.ID] {
+			out = append(out, t)
+		}
+	}
+	if len(out) == 0 {
+		return kept
+	}
+	return out
 }

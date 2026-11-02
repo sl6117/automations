@@ -59,21 +59,32 @@ func reviseDigest(ctx context.Context, client ai.Client, model, projectDir strin
 // Each pass revises the latest candidate against the latest critique and re-judges it.
 // Returns the pair to ship: the first candidate that re-judges clean on faithfulness, or the ORIGINAL draft and report if no revision does.
 // Never errors: any failure inside the loop means the original ships.
-func runReviseLoop(ctx context.Context, client ai.Client, cfg Config, projectDir string, kept []sources.Tweet, draft string, report *JudgeReport, language string, logger *log.Logger) (string, *JudgeReport, ai.Usage) {
+func runReviseLoop(ctx context.Context, client ai.Client, cfg Config, projectDir string, kept []sources.Tweet, draft string, report *JudgeReport, jevDetail map[string]float64, language string, logger *log.Logger) (string, *JudgeReport, ai.Usage) {
 	var total ai.Usage
 	candidate, candReport := draft, report
-
-	for attempt := 1; attempt <= cfg.ReviseBudget && !candReport.Faithfulness.Pass; attempt++ {
-		critique := "faithfulness: " + candReport.Faithfulness.Reason
-
-		revised, rusage, err := reviseDigest(ctx, client, cfg.Model, projectDir, cfg.Topics, kept, candidate, critique, language)
+	ids := jevFaithIDs(jevDetail)
+	first := true
+	for attempt := 1; attempt <= cfg.ReviseBudget && (!candReport.Faithfulness.Pass || (first && len(ids) > 0)); attempt++ {
+		critique := ""
+		tweets := kept
+		if first && len(ids) > 0 {
+			critique = jevFaithCritique(draft, jevDetail)
+			tweets = tweetsForFaithRepair(draft, jevDetail, kept)
+		}
+		first = false
+		if !candReport.Faithfulness.Pass {
+			if critique != "" {
+				critique += "\n"
+			}
+			critique += "faithfulness: " + candReport.Faithfulness.Reason
+		}
+		revised, rusage, err := reviseDigest(ctx, client, cfg.Model, projectDir, cfg.Topics, tweets, candidate, critique, language)
 		total.InputTokens += rusage.InputTokens
 		total.OutputTokens += rusage.OutputTokens
 		if err != nil {
 			logger.Printf("[twitter-digest] revise attempt %d (%s): %v; keeping prior draft", attempt, language, err)
 			break
 		}
-
 		rep, jusage, err := judgeDigest(ctx, client, cfg.judgeModel(), projectDir, cfg.Topics, kept, revised, language)
 		total.InputTokens += jusage.InputTokens
 		total.OutputTokens += jusage.OutputTokens
@@ -81,13 +92,9 @@ func runReviseLoop(ctx context.Context, client ai.Client, cfg Config, projectDir
 			logger.Printf("[twitter-digest] re-judge after revision %d (%s): %v; keeping prior draft", attempt, language, err)
 			break
 		}
-
 		candidate, candReport = revised, &rep
 		logger.Printf("[twitter-digest] revision %d (%s): faithfulness pass=%v", attempt, language, rep.Faithfulness.Pass)
-
 	}
-
-	// adopt-only-if-clean: an unverified or still-failing revision never ships
 	if !candReport.Faithfulness.Pass {
 		return draft, report, total
 	}

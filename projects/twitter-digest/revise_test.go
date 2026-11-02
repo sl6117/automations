@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/sl6117/automations/internal/ai"
+	"github.com/sl6117/automations/pkg/sources"
 )
 
 const failFaithJSON = `{"faithfulness":{"reason":"wrong date","pass":false},"topicRouting":{"reason":"","pass":true},"coverage":{"reason":"","pass":true},"clarity":{"reason":"","pass":true}}`
@@ -17,11 +18,12 @@ const passAllJSON = `{"faithfulness":{"reason":"","pass":true},"topicRouting":{"
 // scriptedClient answers judge prompts from a fixed verdict list and revise prompts
 // with canned text; an unexpected extra judge call panics the test loudly
 type scriptedClient struct {
-	verdicts    []string
-	reviseText  string
-	failRevise  bool
-	judgeCalls  int
-	reviseCalls int
+	verdicts     []string
+	reviseText   string
+	failRevise   bool
+	judgeCalls   int
+	reviseCalls  int
+	revisePrompt string
 }
 
 func (m *scriptedClient) Complete(ctx context.Context, req ai.Request) (ai.Response, error) {
@@ -31,6 +33,7 @@ func (m *scriptedClient) Complete(ctx context.Context, req ai.Request) (ai.Respo
 		return ai.Response{Text: v, Usage: ai.Usage{InputTokens: 5, OutputTokens: 5}}, nil
 	}
 	m.reviseCalls++
+	m.revisePrompt = req.Prompt
 	if m.failRevise {
 		return ai.Response{}, fmt.Errorf("revise call exploded")
 	}
@@ -47,7 +50,7 @@ func failingReport() *JudgeReport {
 func TestReviseLoopOffWhenBudgetZero(t *testing.T) {
 	fake := &scriptedClient{}
 	logger := log.New(io.Discard, "", 0)
-	draft, report, usage := runReviseLoop(context.Background(), fake, Config{Model: "m"}, ".", judgeTweets, "## AI\n- original", failingReport(), "English", logger)
+	draft, report, usage := runReviseLoop(context.Background(), fake, Config{Model: "m"}, ".", judgeTweets, "## AI\n- original", failingReport(), nil, "English", logger)
 	if draft != "## AI\n- original" || report.Faithfulness.Pass {
 		t.Errorf("budget 0 must return the original pair untouched")
 	}
@@ -60,7 +63,7 @@ func TestReviseLoopSkipsWhenFaithfulnessPasses(t *testing.T) {
 	fake := &scriptedClient{}
 	logger := log.New(io.Discard, "", 0)
 	passing := &JudgeReport{Faithfulness: Verdict{Pass: true}}
-	draft, _, _ := runReviseLoop(context.Background(), fake, Config{Model: "m", ReviseBudget: 2}, ".", judgeTweets, "## AI\n- original", passing, "English", logger)
+	draft, _, _ := runReviseLoop(context.Background(), fake, Config{Model: "m", ReviseBudget: 2}, ".", judgeTweets, "## AI\n- original", passing, nil, "English", logger)
 	if draft != "## AI\n- original" || fake.reviseCalls != 0 {
 		t.Errorf("passing faithfulness must not trigger revision")
 	}
@@ -69,7 +72,7 @@ func TestReviseLoopSkipsWhenFaithfulnessPasses(t *testing.T) {
 func TestReviseLoopAdoptsCleanRevision(t *testing.T) {
 	fake := &scriptedClient{verdicts: []string{passAllJSON}, reviseText: "## AI\n- revised"}
 	logger := log.New(io.Discard, "", 0)
-	draft, report, usage := runReviseLoop(context.Background(), fake, Config{Model: "m", ReviseBudget: 1}, ".", judgeTweets, "## AI\n- original", failingReport(), "English", logger)
+	draft, report, usage := runReviseLoop(context.Background(), fake, Config{Model: "m", ReviseBudget: 1}, ".", judgeTweets, "## AI\n- original", failingReport(), nil, "English", logger)
 	if draft != "## AI\n- revised" || !report.Faithfulness.Pass {
 		t.Errorf("clean revision must be adopted, got %q", draft)
 	}
@@ -81,7 +84,7 @@ func TestReviseLoopAdoptsCleanRevision(t *testing.T) {
 func TestReviseLoopKeepsOriginalWhenRevisionStillFails(t *testing.T) {
 	fake := &scriptedClient{verdicts: []string{failFaithJSON}, reviseText: "## AI\n- revised"}
 	logger := log.New(io.Discard, "", 0)
-	draft, report, _ := runReviseLoop(context.Background(), fake, Config{Model: "m", ReviseBudget: 1}, ".", judgeTweets, "## AI\n- original", failingReport(), "English", logger)
+	draft, report, _ := runReviseLoop(context.Background(), fake, Config{Model: "m", ReviseBudget: 1}, ".", judgeTweets, "## AI\n- original", failingReport(), nil, "English", logger)
 	if draft != "## AI\n- original" || report.Faithfulness.Pass {
 		t.Errorf("still-failing revision must not ship; want original draft and report back")
 	}
@@ -90,7 +93,7 @@ func TestReviseLoopKeepsOriginalWhenRevisionStillFails(t *testing.T) {
 func TestReviseLoopErrorKeepsOriginal(t *testing.T) {
 	fake := &scriptedClient{failRevise: true}
 	logger := log.New(io.Discard, "", 0)
-	draft, _, _ := runReviseLoop(context.Background(), fake, Config{Model: "m", ReviseBudget: 1}, ".", judgeTweets, "## AI\n- original", failingReport(), "English", logger)
+	draft, _, _ := runReviseLoop(context.Background(), fake, Config{Model: "m", ReviseBudget: 1}, ".", judgeTweets, "## AI\n- original", failingReport(), nil, "English", logger)
 	if draft != "## AI\n- original" {
 		t.Errorf("revise error must fall back to the original draft")
 	}
@@ -126,5 +129,26 @@ func TestReviseDigestReturnsRevisionAndUsage(t *testing.T) {
 	}
 	if usage.InputTokens != 70 || usage.OutputTokens != 30 {
 		t.Errorf("usage = %+v, want 70/30", usage)
+	}
+}
+func TestReviseLoopRepairsFactWhenSonnetPasses(t *testing.T) {
+	fake := &scriptedClient{verdicts: []string{passAllJSON}, reviseText: "## Crypto\n- revised"}
+	logger := log.New(io.Discard, "", 0)
+	passing := &JudgeReport{Faithfulness: Verdict{Pass: true}, TopicRouting: Verdict{Pass: true}, Coverage: Verdict{Pass: true}, Clarity: Verdict{Pass: true}}
+	kept := []sources.Tweet{
+		{ID: "100", Handle: "@kobeissi", Text: "Bitcoin dropped under 80k"},
+		{ID: "200", Handle: "@other", Text: "unrelated markets note"},
+	}
+	digest := "## Crypto\n- Bitcoin fell below $80,000. @kobeissi https://x.com/KobeissiLetter/status/100"
+	detail := map[string]float64{"b0_fact": 0.85, "split": 0.93, "b0_attr": 0.74}
+	draft, report, _ := runReviseLoop(context.Background(), fake, Config{Model: "m", ReviseBudget: 1}, ".", kept, digest, passing, detail, "English", logger)
+	if fake.reviseCalls != 1 {
+		t.Fatalf("revise calls = %d, want 1", fake.reviseCalls)
+	}
+	if !strings.Contains(fake.revisePrompt, "Bitcoin dropped under 80k") || strings.Contains(fake.revisePrompt, "unrelated markets note") {
+		t.Errorf("revise prompt showed the wrong tweets: %s", fake.revisePrompt)
+	}
+	if draft != "## Crypto\n- revised" || !report.Faithfulness.Pass {
+		t.Errorf("clean fact repair must ship, got %q", draft)
 	}
 }
