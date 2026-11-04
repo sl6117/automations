@@ -51,20 +51,30 @@ func digestBullets(digest string) []digestBullet {
 // jevQuestions asks one defect per bullet, one per bullet for the same event
 // told again, and one per source tweet for a news event the digest never mentions.
 // A high answer means the defect is present.
-func jevQuestions(topics []Topic, kept []sources.Tweet, digest string) map[string]string {
-	q := map[string]string{}
+func jevQuestions(topics []Topic, kept []sources.Tweet, digest string) map[string]ai.Noul {
+	q := map[string]ai.Noul{}
+	ask := func(instructions string) ai.Noul {
+		return ai.Noul{Instructions: instructions}
+	}
 	for i, b := range digestBullets(digest) {
 		id := fmt.Sprintf("b%d", i)
 		quoted := fmt.Sprintf("Bullet under %q: %s", b.Section, b.Text)
-		q[id+"_fact"] = quoted + "\nDoes this bullet state a number, name, date, or place that its cited tweet does not?"
-		q[id+"_cite"] = quoted + "\nDoes this bullet cite a tweet that does not contain the claim?"
-		q[id+"_attr"] = quoted + "\nDoes this bullet drop who said the claim, so a reader would take it as the digest's own observation? A bullet that names the speaker, or says the claim is according to the source, is a no."
-		q[id+"_section"] = "Allowed topics:\n" + topicList(topics) + "\n" + quoted + "\nIs this bullet in a section the topic list rules out? A defensible section, including Other, is a no."
-		q[id+"_merged"] = quoted + "\nDoes this bullet join two unrelated events?"
-		q[id+"_again"] = quoted + "\nDoes another bullet tell this same event again? A later update, a reaction, or a separate fact from the same place is a no."
+		q[id+"_fact"] = ask(quoted + "\nDoes this bullet state a number, name, date, or place that its cited tweet does not?")
+		q[id+"_cite"] = ask(quoted + "\nDoes this bullet cite a tweet that does not contain the claim?")
+		q[id+"_attr"] = ai.Noul{
+			Instructions: quoted + "\nDoes this bullet drop who said the claim, so a reader would take it as the digest's own observation?",
+			Criteria: &ai.NoulCriteria{
+				True:  `The bullet states the claim with no speaker and no "according to the source."`,
+				False: "The bullet names the speaker, or says the claim is according to the source.",
+			},
+		}
+		q[id+"_section"] = ask("Allowed topics:\n" + topicList(topics) + "\n" + quoted + "\nIs this bullet in a section the topic list rules out? A defensible section, including Other, is a no.")
+		q[id+"_merged"] = ask(quoted + "\nDoes this bullet join two unrelated events?")
+		q[id+"_again"] = ask(quoted + "\nDoes another bullet tell this same event again? A later update, a reaction, or a separate fact from the same place is a no.")
+		q[id+"_hedge"] = ask(quoted + "\nDoes this bullet state as finished something its cited tweet only says is on track, expected, or possible?")
 	}
 	for i, t := range kept {
-		q[fmt.Sprintf("t%d_missing", i)] = fmt.Sprintf("Tweet by %s: %s\nDoes this tweet report a news event that no digest bullet mentions? A photo or video caption, a meme, a bare link, a personal note, a nomination list, a promotional post, a market-analysis thread, or a duplicate of a story already covered is a no.", t.Handle, t.Text)
+		q[fmt.Sprintf("t%d_missing", i)] = ask(fmt.Sprintf("Tweet by %s: %s\nDoes this tweet report a news event that no digest bullet mentions? A photo or video caption, a meme, a bare link, a personal note, a nomination list, a promotional post, a market-analysis thread, or a duplicate of a story already covered is a no.", t.Handle, t.Text))
 	}
 	return q
 }
@@ -140,7 +150,7 @@ func jevRoute(score jevScore, callErr string) string {
 }
 
 // jevRepairable names the questions that can set a repair: route.
-// _again and _attr stay in the detail and do not route.
+// _again, _attr, and _hedge stay in the detail and do not route.
 func jevRepairable(name string) bool {
 	switch {
 	case strings.HasSuffix(name, "_fact"), strings.HasSuffix(name, "_cite"),

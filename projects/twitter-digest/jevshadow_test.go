@@ -159,8 +159,8 @@ func TestJevShadowAsksEachBulletAndTweet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("jevShadow: %v", err)
 	}
-	if len(got.Questions) != 2*6+2 {
-		t.Errorf("asked %d questions, want 14 (6 per bullet, 1 per tweet)", len(got.Questions))
+	if len(got.Questions) != 2*7+2 {
+		t.Errorf("asked %d questions, want 16 (7 per bullet, 1 per tweet)", len(got.Questions))
 	}
 	fact, _ := got.Questions["b0_fact"].(map[string]any)
 	if !strings.Contains(fmt.Sprint(fact["instructions"]), "big story") {
@@ -170,9 +170,21 @@ func TestJevShadowAsksEachBulletAndTweet(t *testing.T) {
 	if !strings.Contains(fmt.Sprint(again["instructions"]), "big story") || !strings.Contains(fmt.Sprint(again["instructions"]), "same event") {
 		t.Errorf("b0_again = %v, want the first bullet and the same-event question", again)
 	}
+	hedge, _ := got.Questions["b0_hedge"].(map[string]any)
+	if !strings.Contains(fmt.Sprint(hedge["instructions"]), "big story") || !strings.Contains(fmt.Sprint(hedge["instructions"]), "on track") {
+		t.Errorf("b0_hedge = %v, want the first bullet and the hedge question", hedge)
+	}
+
 	attr, _ := got.Questions["b0_attr"].(map[string]any)
-	if !strings.Contains(fmt.Sprint(attr["instructions"]), "names the speaker") {
-		t.Errorf("b0_attr = %v, want the speaker no", attr)
+	criteria, _ := attr["criteria"].(map[string]any)
+	if !strings.Contains(fmt.Sprint(attr["instructions"]), "big story") || strings.Contains(fmt.Sprint(attr["instructions"]), "names the speaker") {
+		t.Errorf("b0_attr instructions = %v, want the bullet and the question only", attr["instructions"])
+	}
+	if !strings.Contains(fmt.Sprint(criteria["false"]), "names the speaker") || !strings.Contains(fmt.Sprint(criteria["true"]), "according to the source") {
+		t.Errorf("b0_attr criteria = %v, want the speaker boundary", attr["criteria"])
+	}
+	if _, ok := fact["criteria"]; ok {
+		t.Errorf("b0_fact criteria = %v, want none", fact["criteria"])
 	}
 	missing, _ := got.Questions["t1_missing"].(map[string]any)
 	if !strings.Contains(fmt.Sprint(missing["instructions"]), "markets moved") || !strings.Contains(fmt.Sprint(missing["instructions"]), "promotional post") {
@@ -187,7 +199,7 @@ func TestJevShadowAsksEachBulletAndTweet(t *testing.T) {
 }
 
 func TestJevRollupIsZeroWithoutQuestions(t *testing.T) {
-	got := jevRollup(map[string]float64{"split": 0.9, "b0_again": 0.9, "b0_attr": 0.74})
+	got := jevRollup(map[string]float64{"split": 0.9, "b0_again": 0.9, "b0_attr": 0.74, "b0_hedge": 0.9})
 	if got["faithfulness"] != 0 || got["coverage"] != 0 || got["clarity"] != 0 || got["topicRouting"] != 0 {
 		t.Errorf("rollup = %v, want split and attr ignored", got)
 	}
@@ -240,6 +252,14 @@ func TestJevRoute(t *testing.T) {
 			score: jevScore{
 				Rollup: map[string]float64{"faithfulness": 0.1, "topicRouting": 0.1, "coverage": 0.1, "clarity": 0.1},
 				Detail: map[string]float64{"b0_again": 0.93, "b0_merged": 0.1},
+			},
+			want: "send",
+		},
+		{
+			name: "hedge does not repair or escalate",
+			score: jevScore{
+				Rollup: map[string]float64{"faithfulness": 0.1, "topicRouting": 0.1, "coverage": 0.1, "clarity": 0.1},
+				Detail: map[string]float64{"b0_hedge": 0.9, "b0_fact": 0.1},
 			},
 			want: "send",
 		},

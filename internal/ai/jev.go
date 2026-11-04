@@ -21,10 +21,29 @@ type Jev struct {
 	HTTPClient *http.Client
 }
 
+// Noul is one yes/no question. Criteria is omitted on the wire when nil.
+type Noul struct {
+	Instructions string
+	Criteria     *NoulCriteria
+}
+
+// NoulCriteria names the cases that count as yes and no.
+type NoulCriteria struct {
+	True  string
+	False string
+}
+
+// jevCriteria is the optional true/false boundary on a Noul.
+type jevCriteria struct {
+	True  string `json:"true"`
+	False string `json:"false"`
+}
+
 // jevQuestion is one typed question. Type is always "noul" for a yes/no probability.
 type jevQuestion struct {
-	Type         string `json:"type"`
-	Instructions string `json:"instructions"`
+	Type         string       `json:"type"`
+	Instructions string       `json:"instructions"`
+	Criteria     *jevCriteria `json:"criteria,omitempty"`
 }
 
 // jevRequest is the POST body: the text under judgment, and the questions to ask about it.
@@ -45,7 +64,7 @@ type jevResponse struct {
 }
 
 // Nouls asks each question as a yes/no and returns P(yes) under the same name.
-func (j Jev) Nouls(ctx context.Context, state string, questions map[string]string) (map[string]float64, error) {
+func (j Jev) Nouls(ctx context.Context, state string, questions map[string]Noul) (map[string]float64, error) {
 	url := j.BaseURL
 	if url == "" {
 		url = defaultJevURL
@@ -56,8 +75,18 @@ func (j Jev) Nouls(ctx context.Context, state string, questions map[string]strin
 	}
 
 	asked := make(map[string]jevQuestion, len(questions))
-	for name, instructions := range questions {
-		asked[name] = jevQuestion{Type: "noul", Instructions: instructions}
+	for name, q := range questions {
+		asked[name] = jevQuestion{Type: "noul", Instructions: q.Instructions}
+		if q.Criteria != nil {
+			asked[name] = jevQuestion{
+				Type:         "noul",
+				Instructions: q.Instructions,
+				Criteria: &jevCriteria{
+					True:  q.Criteria.True,
+					False: q.Criteria.False,
+				},
+			}
+		}
 	}
 	model := j.Model
 	if model == "" {
