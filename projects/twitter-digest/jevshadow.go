@@ -74,7 +74,13 @@ func jevQuestions(topics []Topic, kept []sources.Tweet, digest string) map[strin
 		q[id+"_hedge"] = ask(quoted + "\nDoes this bullet state as finished something its cited tweet only says is on track, expected, or possible?")
 	}
 	for i, t := range kept {
-		q[fmt.Sprintf("t%d_missing", i)] = ask(fmt.Sprintf("Tweet by %s: %s\nDoes this tweet report a news event that no digest bullet mentions? A photo or video caption, a meme, a bare link, a personal note, a nomination list, a promotional post, a market-analysis thread, or a duplicate of a story already covered is a no.", t.Handle, t.Text))
+		q[fmt.Sprintf("t%d_missing", i)] = ai.Noul{
+			Instructions: fmt.Sprintf("Tweet by %s: %s\nDoes this tweet report a news event that no digest bullet mentions? A photo or video caption, a meme, a bare link, a personal note, a nomination list, a promotional post, a market-analysis thread, or a duplicate of a story already covered is a no.", t.Handle, t.Text),
+			Criteria: &ai.NoulCriteria{
+				True:  "The tweet reports a news event, and no digest bullet mentions that event.",
+				False: "A prediction-market projection, a photo of a prayer, procession, or gathering, a local giveaway or stunt, a photo or video caption, a meme, a bare link, a personal note, a nomination list, a promotional post, a market-analysis thread, or a duplicate of a story already covered.",
+			},
+		}
 	}
 	return q
 }

@@ -187,8 +187,12 @@ func TestJevShadowAsksEachBulletAndTweet(t *testing.T) {
 		t.Errorf("b0_fact criteria = %v, want none", fact["criteria"])
 	}
 	missing, _ := got.Questions["t1_missing"].(map[string]any)
+	missingCriteria, _ := missing["criteria"].(map[string]any)
 	if !strings.Contains(fmt.Sprint(missing["instructions"]), "markets moved") || !strings.Contains(fmt.Sprint(missing["instructions"]), "promotional post") {
 		t.Errorf("t1_missing = %v, want the second tweet and the promo no", missing)
+	}
+	if !strings.Contains(fmt.Sprint(missingCriteria["false"]), "local giveaway") || !strings.Contains(fmt.Sprint(missingCriteria["true"]), "news event") {
+		t.Errorf("t1_missing criteria = %v, want the giveaway no", missing["criteria"])
 	}
 	if !strings.Contains(got.State, "AI will be powerful") || !strings.Contains(got.State, "big story") {
 		t.Errorf("state missing tweet or digest: %s", got.State)
