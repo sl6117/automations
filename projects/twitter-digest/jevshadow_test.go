@@ -159,8 +159,8 @@ func TestJevShadowAsksEachBulletAndTweet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("jevShadow: %v", err)
 	}
-	if len(got.Questions) != 2*7+2 {
-		t.Errorf("asked %d questions, want 16 (7 per bullet, 1 per tweet)", len(got.Questions))
+	if len(got.Questions) != 2*3+2 {
+		t.Errorf("asked %d questions, want 8 (fact, cite, and again per bullet, one missing per tweet)", len(got.Questions))
 	}
 	fact, _ := got.Questions["b0_fact"].(map[string]any)
 	if !strings.Contains(fmt.Sprint(fact["instructions"]), "big story") {
@@ -170,18 +170,17 @@ func TestJevShadowAsksEachBulletAndTweet(t *testing.T) {
 	if !strings.Contains(fmt.Sprint(again["instructions"]), "big story") || !strings.Contains(fmt.Sprint(again["instructions"]), "same event") {
 		t.Errorf("b0_again = %v, want the first bullet and the same-event question", again)
 	}
-	hedge, _ := got.Questions["b0_hedge"].(map[string]any)
-	if !strings.Contains(fmt.Sprint(hedge["instructions"]), "big story") || !strings.Contains(fmt.Sprint(hedge["instructions"]), "on track") {
-		t.Errorf("b0_hedge = %v, want the first bullet and the hedge question", hedge)
+	if _, ok := got.Questions["b0_hedge"]; ok {
+		t.Errorf("b0_hedge was asked; that check is off the daily call")
 	}
-
-	attr, _ := got.Questions["b0_attr"].(map[string]any)
-	criteria, _ := attr["criteria"].(map[string]any)
-	if !strings.Contains(fmt.Sprint(attr["instructions"]), "big story") || strings.Contains(fmt.Sprint(attr["instructions"]), "names the speaker") {
-		t.Errorf("b0_attr instructions = %v, want the bullet and the question only", attr["instructions"])
+	if _, ok := got.Questions["b0_attr"]; ok {
+		t.Errorf("b0_attr was asked; that check is off the daily call")
 	}
-	if !strings.Contains(fmt.Sprint(criteria["false"]), "names the speaker") || !strings.Contains(fmt.Sprint(criteria["true"]), "according to the source") {
-		t.Errorf("b0_attr criteria = %v, want the speaker boundary", attr["criteria"])
+	if _, ok := got.Questions["b0_section"]; ok {
+		t.Errorf("b0_section was asked; that check is off the daily call")
+	}
+	if _, ok := got.Questions["b1_merged"]; ok {
+		t.Errorf("b1_merged was asked; that check is off the daily call")
 	}
 	if _, ok := fact["criteria"]; ok {
 		t.Errorf("b0_fact criteria = %v, want none", fact["criteria"])
@@ -197,8 +196,8 @@ func TestJevShadowAsksEachBulletAndTweet(t *testing.T) {
 	if !strings.Contains(got.State, "AI will be powerful") || !strings.Contains(got.State, "big story") {
 		t.Errorf("state missing tweet or digest: %s", got.State)
 	}
-	if scored.Rollup["faithfulness"] != 0.4 || scored.Rollup["coverage"] != 0.55 || scored.Rollup["clarity"] != 0.7 {
-		t.Errorf("rollup = %v, want worst defect per dimension", scored.Rollup)
+	if scored.Rollup["faithfulness"] != 0.4 || scored.Rollup["coverage"] != 0.55 || scored.Rollup["clarity"] != 0 || scored.Rollup["topicRouting"] != 0 {
+		t.Errorf("rollup = %v, want fact/cite and missing only", scored.Rollup)
 	}
 }
 
@@ -208,8 +207,8 @@ func TestJevRollupIsZeroWithoutQuestions(t *testing.T) {
 		t.Errorf("rollup = %v, want split and attr ignored", got)
 	}
 	kept := jevRollup(map[string]float64{"b1_merged": 0.7, "b0_fact": 0.4})
-	if kept["clarity"] != 0.7 || kept["faithfulness"] != 0.4 {
-		t.Errorf("rollup = %v, want merged and fact", kept)
+	if kept["clarity"] != 0 || kept["topicRouting"] != 0 || kept["faithfulness"] != 0.4 {
+		t.Errorf("rollup = %v, want fact only; merged no longer sets clarity", kept)
 	}
 }
 

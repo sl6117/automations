@@ -29,7 +29,16 @@ var (
 	}
 )
 
-const magnitudeTolerance = 0.10
+const (
+	magnitudeTolerance = 0.10
+	// smallCountLimit is the floor for a bare number that is not in the cited
+	// tweet. A count of 2 is not a failure. A ten-times miss of a large cited
+	// figure still is, even when the digest side of that pair is small.
+	smallCountLimit = 100
+	// scaleMissFloor is the larger of the digest figure and the cited figure.
+	// Below this, a 10x pair is still a small count and does not hold a bullet.
+	scaleMissFloor = 1000
+)
 
 func evalDigest(digest string, kept []sources.Tweet, topics []Topic) (failures []string, coverage string) {
 	keptURLs := make(map[string]bool, len(kept))
@@ -195,17 +204,151 @@ func unsupportedMagnitudes(digest string, kept []sources.Tweet) []string {
 				continue
 			}
 			seen[key] = true
-			matched := false
-			for _, c := range cited {
-				if closeMagnitude(q, c) {
-					matched = true
-					break
-				}
-			}
-			if !matched {
+			if _, scale := quantityIssue(q, cited); scale || unmatchedMagnitude(q, cited) {
 				failures = append(failures, fmt.Sprintf("magnitude %.4g not in cited tweets", q))
 			}
 		}
 	}
 	return failures
+}
+
+// quantityIssue reports a 10x, 100x, or 1000x gap against a cited figure
+// when the larger of the two is at least scaleMissFloor.
+// A matching figure returns 0. A small count that is merely absent returns 0.
+func quantityIssue(q float64, cited []float64) (float64, bool) {
+	for _, c := range cited {
+		if closeMagnitude(q, c) {
+			return 0, false
+		}
+	}
+	for _, c := range cited {
+		if c == 0 || q == 0 {
+			continue
+		}
+		if math.Max(math.Abs(q), math.Abs(c)) < scaleMissFloor {
+			continue
+		}
+		ratio := math.Abs(q / c)
+		if ratio < 1 {
+			ratio = 1 / ratio
+		}
+		for _, factor := range []float64{10, 100, 1000} {
+			if closeMagnitude(ratio, factor) {
+				return factor, true
+			}
+		}
+	}
+	return 0, false
+}
+
+func unmatchedMagnitude(q float64, cited []float64) bool {
+	if _, scale := quantityIssue(q, cited); scale {
+		return false
+	}
+	for _, c := range cited {
+		if closeMagnitude(q, c) {
+			return false
+		}
+	}
+	return math.Abs(q) >= smallCountLimit
+}
+
+// holdScaleMisses drops bullets whose number is about 10, 100, or 1000 times
+// a figure in a cited tweet. A count of 2 does not drop a bullet.
+// Empty sections are dropped with their last bullet. The returned notes name
+// what was held.
+func holdScaleMisses(digest string, kept []sources.Tweet) (string, []string) {
+	qtyByURL := make(map[string][]float64, len(kept))
+	for _, t := range kept {
+		qtyByURL[t.URL] = quantities(t.Text)
+	}
+	type section struct {
+		header  string
+		body    []string
+		bullets int
+	}
+	var preamble []string
+	var sections []section
+	var notes []string
+	idx := -1
+	for _, line := range strings.Split(digest, "\n") {
+		if strings.HasPrefix(line, "## ") {
+			sections = append(sections, section{header: line})
+			idx = len(sections) - 1
+			continue
+		}
+		if idx < 0 {
+			preamble = append(preamble, line)
+			continue
+		}
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "- ") {
+			if q, factor, ok := bulletScaleMiss(trimmed, qtyByURL); ok {
+				notes = append(notes, fmt.Sprintf("held bullet: magnitude %.4g is %.0fx a cited figure: %s", q, factor, clipLine(trimmed, 160)))
+				continue
+			}
+			sections[idx].bullets++
+		}
+		sections[idx].body = append(sections[idx].body, line)
+	}
+	var b strings.Builder
+	for _, line := range preamble {
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	for _, s := range sections {
+		if s.bullets == 0 {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(s.header)
+		b.WriteByte('\n')
+		body := s.body
+		for len(body) > 0 && strings.TrimSpace(body[len(body)-1]) == "" {
+			body = body[:len(body)-1]
+		}
+		for _, line := range body {
+			b.WriteString(line)
+			b.WriteByte('\n')
+		}
+	}
+	return strings.TrimRight(b.String(), "\n"), notes
+}
+
+func bulletScaleMiss(line string, qtyByURL map[string][]float64) (float64, float64, bool) {
+	var cited []float64
+	keptCite := false
+	for _, u := range xURLPattern.FindAllString(line, -1) {
+		qs, ok := qtyByURL[u]
+		if !ok {
+			continue
+		}
+		keptCite = true
+		cited = append(cited, qs...)
+	}
+	if !keptCite {
+		return 0, 0, false
+	}
+	seen := map[string]bool{}
+	for _, q := range quantities(line) {
+		key := strconv.FormatFloat(q, 'g', -1, 64)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		if factor, ok := quantityIssue(q, cited); ok {
+			return q, factor, true
+		}
+	}
+	return 0, 0, false
+}
+
+func clipLine(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
 }

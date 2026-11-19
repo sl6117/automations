@@ -206,12 +206,15 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 		if err != nil {
 			return err
 		}
+		var held []string
+		message, held = holdScaleMisses(message, kept)
 		digests[lang] = message
 		total.InputTokens += usage.InputTokens
 		total.OutputTokens += usage.OutputTokens
 		total.CacheCreationInputTokens += usage.CacheCreationInputTokens
 		total.CacheReadInputTokens += usage.CacheReadInputTokens
 		failures, coverage := evalDigest(message, kept, cfg.Topics)
+		failures = append(held, failures...)
 		runTime.Log.Printf("[twitter-digest] eval (%s): %s", lang, coverage)
 		for _, f := range failures {
 			runTime.Log.Printf("[twitter-digest] eval failure (%s): %s", lang, f)
@@ -264,13 +267,18 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 				finalDraft, finalReport, rusage := runReviseLoop(ctx, jclient, cfg, runTime.ProjectDir, kept, message, judge, initialJev.Detail, lang, runTime.Log)
 				total.InputTokens += rusage.InputTokens
 				total.OutputTokens += rusage.OutputTokens
+				finalDraft, held = holdScaleMisses(finalDraft, kept)
 				if finalDraft != message {
 					message = finalDraft
 					judge = finalReport
 					revisionAdopted = true
 					digests[lang] = message
 					failures, coverage = evalDigest(message, kept, cfg.Topics)
+					failures = append(held, failures...)
 					runTime.Log.Printf("[twitter-digest] revision adopted (%s); eval: %s", lang, coverage)
+					for _, f := range failures {
+						runTime.Log.Printf("[twitter-digest] eval failure (%s): %s", lang, f)
+					}
 				}
 			}
 			if haveJev {

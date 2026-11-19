@@ -133,6 +133,36 @@ func TestEvalMagnitudes(t *testing.T) {
 		}
 	})
 
+	t.Run("a count of 2 is not a failure", func(t *testing.T) {
+		kept := []sources.Tweet{
+			{URL: "https://x.com/a/status/1", Text: "Revenue was $5 million"},
+		}
+		digest := "## AI\n- Two quarters later revenue was $5 million, up across 2 regions (@a https://x.com/a/status/1)"
+		failures, _ := evalDigest(digest, kept, topics)
+		if len(failures) != 0 {
+			t.Errorf("failures = %v, want none (2 is a small count)", failures)
+		}
+		cleaned, notes := holdScaleMisses(digest, kept)
+		if len(notes) != 0 || !strings.Contains(cleaned, "2 regions") {
+			t.Errorf("cleaned = %q notes = %v, want the bullet kept", cleaned, notes)
+		}
+	})
+
+	t.Run("a ten-times miss holds the bullet", func(t *testing.T) {
+		digest := "## AI\n- Revenue was $1.5 billion (@a https://x.com/a/status/1)\n- Headcount is 1500 (@c https://x.com/c/status/3)"
+		failures, _ := evalDigest(digest, kept, topics)
+		if len(failures) != 1 || !strings.Contains(failures[0], "1.5e+09") {
+			t.Errorf("failures = %v, want the 10x billion figure", failures)
+		}
+		cleaned, notes := holdScaleMisses(digest, kept)
+		if len(notes) != 1 || !strings.Contains(notes[0], "10x") {
+			t.Errorf("notes = %v, want one 10x hold", notes)
+		}
+		if strings.Contains(cleaned, "1.5 billion") || !strings.Contains(cleaned, "Headcount is 1500") {
+			t.Errorf("cleaned = %q, want the billion bullet gone and the headcount bullet kept", cleaned)
+		}
+	})
+
 	t.Run("a status id is not a count", func(t *testing.T) {
 		kept := []sources.Tweet{
 			{URL: "https://x.com/a/status/1", Text: "No figures here"},

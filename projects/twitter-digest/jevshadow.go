@@ -48,10 +48,13 @@ func digestBullets(digest string) []digestBullet {
 	return out
 }
 
-// jevQuestions asks one defect per bullet, one per bullet for the same event
-// told again, and one per source tweet for a news event the digest never mentions.
+// jevQuestions asks whether a bullet invents a number, name, date, or place,
+// whether it cites the wrong tweet, whether another bullet tells the same event,
+// and whether a source tweet's news event never appears.
+// Who-said-it, wrong-section, two-events-in-one-bullet, and finished-vs-possible
+// are not asked: a week of mornings showed they do not change the email.
 // A high answer means the defect is present.
-func jevQuestions(topics []Topic, kept []sources.Tweet, digest string) map[string]ai.Noul {
+func jevQuestions(kept []sources.Tweet, digest string) map[string]ai.Noul {
 	q := map[string]ai.Noul{}
 	ask := func(instructions string) ai.Noul {
 		return ai.Noul{Instructions: instructions}
@@ -61,17 +64,7 @@ func jevQuestions(topics []Topic, kept []sources.Tweet, digest string) map[strin
 		quoted := fmt.Sprintf("Bullet under %q: %s", b.Section, b.Text)
 		q[id+"_fact"] = ask(quoted + "\nDoes this bullet state a number, name, date, or place that its cited tweet does not?")
 		q[id+"_cite"] = ask(quoted + "\nDoes this bullet cite a tweet that does not contain the claim?")
-		q[id+"_attr"] = ai.Noul{
-			Instructions: quoted + "\nDoes this bullet drop who said the claim, so a reader would take it as the digest's own observation?",
-			Criteria: &ai.NoulCriteria{
-				True:  `The bullet states the claim with no speaker and no "according to the source."`,
-				False: "The bullet names the speaker, or says the claim is according to the source.",
-			},
-		}
-		q[id+"_section"] = ask("Allowed topics:\n" + topicList(topics) + "\n" + quoted + "\nIs this bullet in a section the topic list rules out? A defensible section, including Other, is a no.")
-		q[id+"_merged"] = ask(quoted + "\nDoes this bullet join two unrelated events?")
 		q[id+"_again"] = ask(quoted + "\nDoes another bullet tell this same event again? A later update, a reaction, or a separate fact from the same place is a no.")
-		q[id+"_hedge"] = ask(quoted + "\nDoes this bullet state as finished something its cited tweet only says is on track, expected, or possible?")
 	}
 	for i, t := range kept {
 		q[fmt.Sprintf("t%d_missing", i)] = ai.Noul{
@@ -96,6 +89,8 @@ func jevState(topics []Topic, kept []sources.Tweet, digest, language string) (st
 
 // jevRollup reduces the defect questions to the four dimensions. Each value is
 // the highest P(defect) among the questions for that dimension.
+// topicRouting and clarity stay in the map so older readers still see the keys.
+// Nothing asks those questions anymore, so both stay 0.
 func jevRollup(detail map[string]float64) map[string]float64 {
 	maxOf := func(match func(string) bool) float64 {
 		var worst float64
@@ -110,9 +105,9 @@ func jevRollup(detail map[string]float64) map[string]float64 {
 		"faithfulness": maxOf(func(name string) bool {
 			return strings.HasSuffix(name, "_fact") || strings.HasSuffix(name, "_cite")
 		}),
-		"topicRouting": maxOf(func(name string) bool { return strings.HasSuffix(name, "_section") }),
+		"topicRouting": 0,
 		"coverage":     maxOf(func(name string) bool { return strings.HasSuffix(name, "_missing") }),
-		"clarity":      maxOf(func(name string) bool { return strings.HasSuffix(name, "_merged") }),
+		"clarity":      0,
 	}
 }
 
@@ -122,7 +117,7 @@ func jevShadow(ctx context.Context, client ai.Jev, topics []Topic, kept []source
 	if err != nil {
 		return jevScore{}, err
 	}
-	detail, err := client.Nouls(ctx, state, jevQuestions(topics, kept, digest))
+	detail, err := client.Nouls(ctx, state, jevQuestions(kept, digest))
 	if err != nil {
 		return jevScore{}, err
 	}
@@ -156,11 +151,11 @@ func jevRoute(score jevScore, callErr string) string {
 }
 
 // jevRepairable names the questions that can set a repair: route.
-// _again, _attr, and _hedge stay in the detail and do not route.
+// _again stays in the detail and does not route. _missing can appear in the
+// route string and does not change the brief. The revise loop reads fact and cite only.
 func jevRepairable(name string) bool {
 	switch {
-	case strings.HasSuffix(name, "_fact"), strings.HasSuffix(name, "_cite"),
-		strings.HasSuffix(name, "_merged"), strings.HasSuffix(name, "_section"), strings.HasSuffix(name, "_missing"):
+	case strings.HasSuffix(name, "_fact"), strings.HasSuffix(name, "_cite"), strings.HasSuffix(name, "_missing"):
 		return true
 	default:
 		return false
