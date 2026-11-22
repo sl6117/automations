@@ -258,13 +258,25 @@ func (x XAPI) tweetsFromPage(parsed xListTweetsResponse) (tweets []Tweet, reache
 		author := users[d.AuthorID]
 
 		text := fullText(d.Text, d.NoteTweet.Text)
+		own := text
+		var tweetRefs []Ref
 		for _, ref := range d.ReferencedTweets {
-
+			if ref.Type == "retweeted" {
+				own = ""
+			}
 			original, ok := refs[ref.ID]
 			if !ok {
-				continue // referenced tweet missing from includes (Deleted/protected): keep wrapper text
+				// referenced tweet missing from includes (Deleted/protected): keep wrapper text,
+				// but still record that the reference exists
+				tweetRefs = append(tweetRefs, Ref{Type: ref.Type, ID: ref.ID})
+				continue
 			}
 			originalUser := users[original.authorID]
+			r := Ref{Type: ref.Type, ID: ref.ID, AuthorID: original.authorID, Text: original.text}
+			if originalUser.username != "" {
+				r.AuthorHandle = "@" + originalUser.username
+			}
+			tweetRefs = append(tweetRefs, r)
 			switch ref.Type {
 			case "retweeted":
 				text = "RT @" + originalUser.username + ": " + original.text
@@ -288,6 +300,9 @@ func (x XAPI) tweetsFromPage(parsed xListTweetsResponse) (tweets []Tweet, reache
 			Impressions:     d.PublicMetrics.ImpressionCount,
 			CreatedAt:       parseCreatedAt(d.CreatedAt),
 			AuthorFollowers: author.followers,
+			AuthorID:        d.AuthorID,
+			OwnText:         own,
+			Refs:            tweetRefs,
 		})
 	}
 	return tweets, reachedCursor
