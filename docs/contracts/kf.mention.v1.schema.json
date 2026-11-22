@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "kf.mention.v1",
+  "description": "One ticker mention in one post. Additional properties may appear in later v1 producers; consumers ignore them.",
+  "type": "object",
+  "required": ["schema_version", "record_id", "ticker", "kind", "in", "post", "available_at", "metrics", "source_pack"],
+  "properties": {
+    "schema_version": {"const": "kf.mention.v1"},
+    "record_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "ticker": {"type": "string", "pattern": "^[A-Z]{1,5}(\\.[A-Z])?$"},
+    "kind": {"enum": ["cashtag", "alias"]},
+    "in": {"enum": ["own", "ref"]},
+    "post": {
+      "type": "object",
+      "required": ["id", "url", "author_handle"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "url": {"type": "string"},
+        "author_id": {"type": "string"},
+        "author_handle": {"type": "string"},
+        "created_at": {"$ref": "#/$defs/timestamp"},
+        "ref_type": {"enum": ["retweeted", "quoted", "replied_to"]},
+        "ref_post_id": {"type": "string"},
+        "ref_author_handle": {"type": "string"}
+      }
+    },
+    "available_at": {"$ref": "#/$defs/timestamp"},
+    "age_at_fetch_s": {"type": "integer"},
+    "metrics": {
+      "type": "object",
+      "required": ["likes", "reposts", "replies", "quotes", "impressions", "author_followers"],
+      "properties": {
+        "likes": {"type": "integer", "minimum": 0},
+        "reposts": {"type": "integer", "minimum": 0},
+        "replies": {"type": "integer", "minimum": 0},
+        "quotes": {"type": "integer", "minimum": 0},
+        "impressions": {"type": "integer", "minimum": 0},
+        "author_followers": {"type": "integer", "minimum": 0}
+      }
+    },
+    "source_pack": {"type": "string"}
+  },
+  "$defs": {
+    "timestamp": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"}
+  }
+}

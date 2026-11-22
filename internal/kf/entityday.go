@@ -60,6 +60,7 @@ type dayStats struct {
 	voices                  map[string]map[string]bool // ticker -> voice keys
 	truncated, partial, any bool
 	availableAt             time.Time
+	firstFetch              time.Time // earliest run that day; the manifest's source window
 }
 
 func utcDate(t time.Time) time.Time {
@@ -109,6 +110,9 @@ func stats(u *Universe, d Day) dayStats {
 		s.partial = s.partial || r.Written < r.Fetched
 		if r.FetchedAt.After(s.availableAt) {
 			s.availableAt = r.FetchedAt.UTC()
+		}
+		if s.firstFetch.IsZero() || r.FetchedAt.Before(s.firstFetch) {
+			s.firstFetch = r.FetchedAt.UTC()
 		}
 	}
 	var sameDay []corpus.StoredPost

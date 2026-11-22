@@ -1,0 +1,34 @@
+{
+  "schema_version": "kf.manifest.v1",
+  "date": "2026-11-21",
+  "revision": 1,
+  "sealed_at": "2026-11-21T17:00:00Z",
+  "source_window": {
+    "first_fetch": "2026-11-21T16:00:01Z",
+    "last_fetch": "2026-11-21T16:00:01Z"
+  },
+  "files": [
+    {
+      "path": "mentions/2026-11-21.r1.jsonl",
+      "records": 4,
+      "sha256": "57df9ddcc7db50d070be526e3fd77630d1524542aac9a7683a507807144ba15f"
+    },
+    {
+      "path": "entity_day/2026-11-21.r1.jsonl",
+      "records": 2,
+      "sha256": "1305658a0fae68b502fefdfd14884b7b00058c47f310e5a916cf75af2410071b"
+    }
+  ],
+  "universe_version": "fixture-2026-11-21",
+  "extractor_version": "kf.extract.v1",
+  "posts_fetched": 4,
+  "window_truncated": false,
+  "window_partial": false,
+  "unmapped_cashtags": [
+    {
+      "symbol": "NOPE",
+      "posts": 1
+    }
+  ],
+  "supersedes": null
+}

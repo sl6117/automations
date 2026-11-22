@@ -2,6 +2,7 @@
 // usage:
 // auto list
 // auto run <project> [--dry-run]
+// auto kf export --date YYYY-MM-DD [--out dir] [--allow-dynamo]
 package main
 
 import (
@@ -43,6 +44,8 @@ func main() {
 		cmdVerdicts(os.Args[2:])
 	case "rank-backtest":
 		cmdRankBacktest(os.Args[2:])
+	case "kf":
+		cmdKF(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", os.Args[1])
 		usage()
@@ -57,6 +60,8 @@ func usage() {
 		auto list                        list registered projects
 		auto run <project> [--dry-run]   run a project
 		auto cost                        show LLM cost report
+		auto kf export --date YYYY-MM-DD [--out dir] [--allow-dynamo]
+		                                 seal one day of the desk feed (refuses dynamo without the flag)
 	`)
 }
 

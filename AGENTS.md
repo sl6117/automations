@@ -22,9 +22,11 @@ side projects or feature work that doesn't advance it.
 - `internal/ai/` - LLM clients (Anthropic, OpenRouter).
 - `internal/obs/` - cost logging + report (`auto cost`).
 - `internal/corpus/` - every fetched post, kept and dropped, by UTC fetch day, in its own table (`CORPUS_TABLE`). Behind the digest's `corpus.enabled` flag.
+- `internal/kf/` - ticker universe, mention matching, entity-day aggregate, and sealed daily exports (`auto kf export`).
 - `pkg/sources/` - data-source adapters (X API, mock). `pkg/sinks/` - delivery (telegram, email, console).
 - `projects/<name>/` - one automation: code, `config.json`, `prompts/`, tests.
 - `docs/decisions/` - why we did things (archive analysis here, not in code comments).
+- `docs/contracts/` - published data contracts (desk feed v1: doc, JSON Schemas, golden fixtures). Additive changes only within a version.
 
 ## Conventions
 - Secrets only in `.env` (gitignored, loaded by direnv). Never hardcode keys. Never print secret values.

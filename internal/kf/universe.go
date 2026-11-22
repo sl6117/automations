@@ -1,6 +1,7 @@
 // Package kf derives the desk-feed records (ticker mentions and the daily aggregate) from
-// stored corpus posts. Everything here is a pure function of its inputs: no store, no
-// network, no model, no wall clock, so a sealed day can be recomputed byte for byte.
+// stored corpus posts and seals them as daily export files. Everything except seal.go
+// is a pure function of its inputs: no store, no network, no model, no wall clock, so a
+// sealed day can be recomputed byte for byte. The contract is docs/contracts/desk-feed-v1.md.
 package kf
 
 import (
