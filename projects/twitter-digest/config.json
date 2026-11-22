@@ -20,6 +20,7 @@
     "maxPerAuthor": 3,
     "digestBudget": 32,
     "deliverTo": ["telegram", "console"],
-    "emailFrom": "cheese@cheddars.uk"
+    "emailFrom": "cheese@cheddars.uk",
+    "corpus": {"enabled": false}
 }
 

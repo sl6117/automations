@@ -2,10 +2,14 @@ package sources
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -59,8 +63,11 @@ func TestXAPIFetch(t *testing.T) {
 		URL:     "https://x.com/darioa/status/100",
 		Likes:   500,
 		Reposts: 30,
+		// structured fields: a plain post's own text is the whole text
+		AuthorID: "42",
+		OwnText:  "AI is moving fast",
 	}
-	if tweets[0] != want {
+	if !reflect.DeepEqual(tweets[0], want) {
 		t.Errorf("tweet =\n %+v\nwant\n %+v", tweets[0], want)
 	}
 	if gotAuth != "Bearer test-token" {
@@ -671,5 +678,321 @@ func TestXAPIFetchAttributesMetadataToTheRetweeter(t *testing.T) {
 	wantTime := time.Date(2026, 7, 27, 9, 0, 0, 0, time.UTC)
 	if !tweets[0].CreatedAt.Equal(wantTime) {
 		t.Errorf("CreatedAt = %v, want the retweet time %v", tweets[0].CreatedAt, wantTime)
+	}
+}
+
+// The structured fields must say whose words are whose, which Text cannot: a ticker in a
+// quoted post would otherwise look like one the author wrote. Each case also pins Text,
+// because the digest prompt, judge and Jev read it and must see exactly what they saw
+// before these fields existed.
+var xapiStructureCases = []struct {
+	name     string
+	payload  string
+	wantText string
+	want     Tweet // only the structured fields are compared
+}{
+	{
+		name: "plain post",
+		payload: `{
+			"data": [
+				{"id": "1900000000000000001", "text": "Plain take on $EXMPL https://t.co/example cc @example_desk",
+				 "author_id": "1900000000000000901",
+				 "public_metrics": {"like_count": 10, "retweet_count": 2}}
+			],
+			"includes": {"users": [{"id": "1900000000000000901", "name": "Example Wire", "username": "example_wire"}]}
+		}`,
+		wantText: "Plain take on $EXMPL https://t.co/example cc @example_desk",
+		want: Tweet{
+			AuthorID: "1900000000000000901",
+			OwnText:  "Plain take on $EXMPL https://t.co/example cc @example_desk",
+		},
+	},
+	{
+		name: "retweet",
+		payload: `{
+			"data": [
+				{"id": "1900000000000000002", "text": "RT @example_desk: $EXMPL beat estimates by a wi",
+				 "author_id": "1900000000000000901",
+				 "public_metrics": {"like_count": 0, "retweet_count": 40},
+				 "referenced_tweets": [{"type": "retweeted", "id": "1900000000000000011"}]}
+			],
+			"includes": {
+				"users": [
+					{"id": "1900000000000000901", "name": "Example Wire", "username": "example_wire"},
+					{"id": "1900000000000000902", "name": "Example Desk", "username": "example_desk"}
+				],
+				"tweets": [
+					{"id": "1900000000000000011", "text": "$EXMPL beat estimates by a wide margin", "author_id": "1900000000000000902"}
+				]
+			}
+		}`,
+		wantText: "RT @example_desk: $EXMPL beat estimates by a wide margin",
+		want: Tweet{
+			AuthorID: "1900000000000000901",
+			OwnText:  "", // the retweeter wrote none of it
+			Refs: []Ref{{Type: "retweeted", ID: "1900000000000000011", AuthorID: "1900000000000000902",
+				AuthorHandle: "@example_desk", Text: "$EXMPL beat estimates by a wide margin"}},
+		},
+	},
+	{
+		name: "quote",
+		payload: `{
+			"data": [
+				{"id": "1900000000000000003", "text": "Not convinced https://t.co/example",
+				 "author_id": "1900000000000000901",
+				 "public_metrics": {"like_count": 10, "retweet_count": 2},
+				 "referenced_tweets": [{"type": "quoted", "id": "1900000000000000012"}]}
+			],
+			"includes": {
+				"users": [
+					{"id": "1900000000000000901", "name": "Example Wire", "username": "example_wire"},
+					{"id": "1900000000000000902", "name": "Example Desk", "username": "example_desk"}
+				],
+				"tweets": [
+					{"id": "1900000000000000012", "text": "$EXMPL guidance raised", "author_id": "1900000000000000902"}
+				]
+			}
+		}`,
+		wantText: "Not convinced https://t.co/example\n[quoting @example_desk: $EXMPL guidance raised]",
+		want: Tweet{
+			AuthorID: "1900000000000000901",
+			OwnText:  "Not convinced https://t.co/example",
+			Refs: []Ref{{Type: "quoted", ID: "1900000000000000012", AuthorID: "1900000000000000902",
+				AuthorHandle: "@example_desk", Text: "$EXMPL guidance raised"}},
+		},
+	},
+	{
+		name: "reply",
+		payload: `{
+			"data": [
+				{"id": "1900000000000000004", "text": "@example_desk source?",
+				 "author_id": "1900000000000000901",
+				 "public_metrics": {"like_count": 10, "retweet_count": 2},
+				 "referenced_tweets": [{"type": "replied_to", "id": "1900000000000000013"}]}
+			],
+			"includes": {
+				"users": [
+					{"id": "1900000000000000901", "name": "Example Wire", "username": "example_wire"},
+					{"id": "1900000000000000902", "name": "Example Desk", "username": "example_desk"}
+				],
+				"tweets": [
+					{"id": "1900000000000000013", "text": "Hearing $EXMPL is in talks", "author_id": "1900000000000000902"}
+				]
+			}
+		}`,
+		wantText: "@example_desk source?\n[replying to @example_desk: Hearing $EXMPL is in talks]",
+		want: Tweet{
+			AuthorID: "1900000000000000901",
+			OwnText:  "@example_desk source?", // the leading mention is the author's text as sent
+			Refs: []Ref{{Type: "replied_to", ID: "1900000000000000013", AuthorID: "1900000000000000902",
+				AuthorHandle: "@example_desk", Text: "Hearing $EXMPL is in talks"}},
+		},
+	},
+	{
+		name: "quote and reply",
+		payload: `{
+			"data": [
+				{"id": "1900000000000000005", "text": "@example_desk compare this",
+				 "author_id": "1900000000000000901",
+				 "public_metrics": {"like_count": 10, "retweet_count": 2},
+				 "referenced_tweets": [
+					{"type": "quoted", "id": "1900000000000000015"},
+					{"type": "replied_to", "id": "1900000000000000014"}
+				 ]}
+			],
+			"includes": {
+				"users": [
+					{"id": "1900000000000000901", "name": "Example Wire", "username": "example_wire"},
+					{"id": "1900000000000000902", "name": "Example Desk", "username": "example_desk"},
+					{"id": "1900000000000000903", "name": "Example Fund", "username": "example_fund"}
+				],
+				"tweets": [
+					{"id": "1900000000000000014", "text": "Shorting $EXMPL", "author_id": "1900000000000000902"},
+					{"id": "1900000000000000015", "text": "Long $EXMPL into earnings", "author_id": "1900000000000000903"}
+				]
+			}
+		}`,
+		wantText: "@example_desk compare this\n[quoting @example_fund: Long $EXMPL into earnings]\n[replying to @example_desk: Shorting $EXMPL]",
+		want: Tweet{
+			AuthorID: "1900000000000000901",
+			OwnText:  "@example_desk compare this",
+			Refs: []Ref{
+				{Type: "quoted", ID: "1900000000000000015", AuthorID: "1900000000000000903",
+					AuthorHandle: "@example_fund", Text: "Long $EXMPL into earnings"},
+				{Type: "replied_to", ID: "1900000000000000014", AuthorID: "1900000000000000902",
+					AuthorHandle: "@example_desk", Text: "Shorting $EXMPL"},
+			},
+		},
+	},
+	{
+		name: "quoted post missing from includes",
+		payload: `{
+			"data": [
+				{"id": "1900000000000000006", "text": "This aged badly https://t.co/example",
+				 "author_id": "1900000000000000901",
+				 "public_metrics": {"like_count": 10, "retweet_count": 2},
+				 "referenced_tweets": [{"type": "quoted", "id": "1900000000000000016"}]}
+			],
+			"includes": {"users": [{"id": "1900000000000000901", "name": "Example Wire", "username": "example_wire"}]}
+		}`,
+		wantText: "This aged badly https://t.co/example",
+		want: Tweet{
+			AuthorID: "1900000000000000901",
+			OwnText:  "This aged badly https://t.co/example",
+			Refs:     []Ref{{Type: "quoted", ID: "1900000000000000016"}},
+		},
+	},
+	{
+		name: "retweeted post missing from includes",
+		payload: `{
+			"data": [
+				{"id": "1900000000000000007", "text": "RT @example_desk: deleted befo",
+				 "author_id": "1900000000000000901",
+				 "public_metrics": {"like_count": 0, "retweet_count": 5},
+				 "referenced_tweets": [{"type": "retweeted", "id": "1900000000000000017"}]}
+			],
+			"includes": {"users": [{"id": "1900000000000000901", "name": "Example Wire", "username": "example_wire"}]}
+		}`,
+		wantText: "RT @example_desk: deleted befo",
+		want: Tweet{
+			AuthorID: "1900000000000000901",
+			OwnText:  "", // still a retweet: the wrapper text is someone else's words
+			Refs:     []Ref{{Type: "retweeted", ID: "1900000000000000017"}},
+		},
+	},
+	{
+		name: "referenced author missing from includes",
+		payload: `{
+			"data": [
+				{"id": "1900000000000000008", "text": "Worth reading",
+				 "author_id": "1900000000000000901",
+				 "public_metrics": {"like_count": 10, "retweet_count": 2},
+				 "referenced_tweets": [{"type": "quoted", "id": "1900000000000000018"}]}
+			],
+			"includes": {
+				"users": [{"id": "1900000000000000901", "name": "Example Wire", "username": "example_wire"}],
+				"tweets": [{"id": "1900000000000000018", "text": "a post whose author was not expanded", "author_id": "1900000000000000904"}]
+			}
+		}`,
+		wantText: "Worth reading\n[quoting @: a post whose author was not expanded]",
+		want: Tweet{
+			AuthorID: "1900000000000000901",
+			OwnText:  "Worth reading",
+			// a bare "@" would read as a real handle downstream; empty says unknown
+			Refs: []Ref{{Type: "quoted", ID: "1900000000000000018", AuthorID: "1900000000000000904",
+				Text: "a post whose author was not expanded"}},
+		},
+	},
+	{
+		name: "long-form post quoting a long-form post",
+		payload: `{
+			"data": [
+				{"id": "1900000000000000009", "text": "Thread on $EXMPL margins, cut mid-sen",
+				 "note_tweet": {"text": "Thread on $EXMPL margins, cut mid-sentence in text but whole in the note https://t.co/example"},
+				 "author_id": "1900000000000000901",
+				 "public_metrics": {"like_count": 10, "retweet_count": 2},
+				 "referenced_tweets": [{"type": "quoted", "id": "1900000000000000019"}]}
+			],
+			"includes": {
+				"users": [
+					{"id": "1900000000000000901", "name": "Example Wire", "username": "example_wire"},
+					{"id": "1900000000000000902", "name": "Example Desk", "username": "example_desk"}
+				],
+				"tweets": [
+					{"id": "1900000000000000019", "text": "Original long analysis, also c",
+					 "note_tweet": {"text": "Original long analysis, also capped unless the note is read"},
+					 "author_id": "1900000000000000902"}
+				]
+			}
+		}`,
+		wantText: "Thread on $EXMPL margins, cut mid-sentence in text but whole in the note https://t.co/example\n[quoting @example_desk: Original long analysis, also capped unless the note is read]",
+		want: Tweet{
+			AuthorID: "1900000000000000901",
+			OwnText:  "Thread on $EXMPL margins, cut mid-sentence in text but whole in the note https://t.co/example",
+			Refs: []Ref{{Type: "quoted", ID: "1900000000000000019", AuthorID: "1900000000000000902",
+				AuthorHandle: "@example_desk", Text: "Original long analysis, also capped unless the note is read"}},
+		},
+	},
+}
+
+func fetchPayload(t *testing.T, payload string) []Tweet {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, payload)
+	}))
+	defer server.Close()
+	x := XAPI{BearerToken: "test-token", ListID: "12345", BaseURL: server.URL}
+	tweets, err := x.Fetch(context.Background())
+	if err != nil {
+		t.Fatalf("Fetch returned error: %v", err)
+	}
+	return tweets
+}
+
+func TestXAPIFetchKeepsOwnTextAndReferencedPostsApart(t *testing.T) {
+	for _, tc := range xapiStructureCases {
+		t.Run(tc.name, func(t *testing.T) {
+			tweets := fetchPayload(t, tc.payload)
+			if len(tweets) != 1 {
+				t.Fatalf("got %d tweets, want 1", len(tweets))
+			}
+			got := tweets[0]
+			if got.Text != tc.wantText {
+				t.Errorf("Text = %q, want %q: Text must not change, the prompt, judge and Jev read it", got.Text, tc.wantText)
+			}
+			if got.AuthorID != tc.want.AuthorID {
+				t.Errorf("AuthorID = %q, want %q", got.AuthorID, tc.want.AuthorID)
+			}
+			if got.OwnText != tc.want.OwnText {
+				t.Errorf("OwnText = %q, want %q: only the author's words, no markers", got.OwnText, tc.want.OwnText)
+			}
+			if !reflect.DeepEqual(got.Refs, tc.want.Refs) {
+				t.Errorf("Refs =\n %+v\nwant\n %+v", got.Refs, tc.want.Refs)
+			}
+		})
+	}
+}
+
+// The digest's X request is the one live contact with the API that a unit test cannot
+// prove safe, and it is billed. It must stay exactly what main sends.
+func TestXAPIRequestQueryIsPinned(t *testing.T) {
+	var got url.Values
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.URL.Query()
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"data": []}`)
+	}))
+	defer server.Close()
+	x := XAPI{BearerToken: "test-token", ListID: "12345", BaseURL: server.URL}
+	if _, err := x.Fetch(context.Background()); err != nil {
+		t.Fatalf("Fetch returned error: %v", err)
+	}
+	want := url.Values{
+		"max_results":  {"50"},
+		"tweet.fields": {"public_metrics,referenced_tweets,note_tweet,created_at"},
+		"expansions":   {"author_id,referenced_tweets.id,referenced_tweets.id.author_id"},
+		"user.fields":  {"name,username,public_metrics"},
+	}
+	if got.Encode() != want.Encode() {
+		t.Errorf("X request query = %s\nwant %s\nthe digest's X request must not change without the owner's approval", got.Encode(), want.Encode())
+	}
+}
+
+// Artifacts embed Tweet and are stored under Go field names. A source that leaves the
+// structured fields empty must serialize exactly as before, so old and new artifacts
+// stay comparable and stored blobs do not grow.
+func TestTweetJSONOmitsEmptyStructuredFields(t *testing.T) {
+	data, err := json.Marshal(Tweet{ID: "1900000000000000001", Handle: "@example_wire", Text: "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"AuthorID", "OwnText", "Refs"} {
+		if strings.Contains(string(data), `"`+key+`"`) {
+			t.Errorf("empty %s serialized: %s", key, data)
+		}
+	}
+	if !strings.Contains(string(data), `"Text":"hello"`) {
+		t.Errorf("existing fields must keep their Go-name keys: %s", data)
 	}
 }

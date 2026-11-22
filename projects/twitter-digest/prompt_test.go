@@ -57,3 +57,32 @@ func TestBuildPromptSystemStableAcrossLanguages(t *testing.T) {
 		t.Error("user message must differ by language")
 	}
 }
+
+// The model-facing view is a contract shared by the digest prompt, the judge and Jev:
+// the adapter's structured fields must never leak into it, or every prompt changes.
+func TestSlimTweetsIgnoresStructuredFields(t *testing.T) {
+	tweets := []sources.Tweet{{
+		ID: "1900000000000000001", Author: "Example Wire", Handle: "@example_wire",
+		Text:     "Not convinced\n[quoting @example_desk: $EXMPL guidance raised]",
+		URL:      "https://x.com/example_wire/status/1900000000000000001",
+		AuthorID: "1900000000000000901",
+		OwnText:  "Not convinced",
+		Refs: []sources.Ref{{Type: "quoted", ID: "1900000000000000012", AuthorID: "1900000000000000902",
+			AuthorHandle: "@example_desk", Text: "$EXMPL guidance raised"}},
+	}}
+	got, err := slimTweets(tweets)
+	if err != nil {
+		t.Fatalf("slimTweets error: %v", err)
+	}
+	want := `[
+  {
+    "author": "Example Wire",
+    "handle": "@example_wire",
+    "url": "https://x.com/example_wire/status/1900000000000000001",
+    "text": "Not convinced\n[quoting @example_desk: $EXMPL guidance raised]"
+  }
+]`
+	if string(got) != want {
+		t.Errorf("slimTweets =\n%s\nwant\n%s", got, want)
+	}
+}

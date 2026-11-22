@@ -32,16 +32,26 @@ type Dynamo struct {
 // (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION) and targets
 // the table named by DYNAMO_TABLE (default "automations")
 func NewDynamo(ctx context.Context) (*Dynamo, error) {
-	cfg, err := awsconfig.LoadDefaultConfig(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("load aws config: %w", err)
-	}
 	table := os.Getenv("DYNAMO_TABLE")
 
 	if table == "" {
 		table = "automations"
 	}
 
+	return NewDynamoTable(ctx, table)
+}
+
+// NewDynamoTable targets a named table with the same credential lookup as NewDynamo.
+// Stores that must stay out of the main table's full-table List scans (the corpus)
+// use this instead of DYNAMO_TABLE.
+func NewDynamoTable(ctx context.Context, table string) (*Dynamo, error) {
+	if table == "" {
+		return nil, fmt.Errorf("dynamo table name is empty")
+	}
+	cfg, err := awsconfig.LoadDefaultConfig(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load aws config: %w", err)
+	}
 	return &Dynamo{client: dynamodb.NewFromConfig(cfg), table: table}, nil
 }
 
