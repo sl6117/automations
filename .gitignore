@@ -33,3 +33,5 @@ infra/cdk.out/
 **/subscribers.json
 
 .cursor/mcp.json
+# Agent worktrees (local only)
+.claude/worktrees/
