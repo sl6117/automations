@@ -48,6 +48,21 @@ export class AutomationsStack extends cdk.Stack {
     };
 
     const digest = makeWorker("Digest", "automations-digest", cdk.Duration.minutes(10));
+
+    // Every fetched post lives here, apart from the main table, so the main table's
+    // full-table List scans never read corpus items. Owned by this stack (unlike the main
+    // table) but retained on stack deletion: it holds history that cannot be re-fetched.
+    const corpusTable = new dynamodb.Table(this, "CorpusTable", {
+      tableName: "automations-corpus",
+      partitionKey: { name: "pk", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "sk", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+    // digest only: it is the sole writer, and the deepdive has no reason to read posts
+    corpusTable.grantReadWriteData(digest);
+    digest.addEnvironment("CORPUS_TABLE", corpusTable.tableName);
     const deepdive = makeWorker("Deepdive", "automations-deepdive", cdk.Duration.minutes(15));
 
    // These schedules are the sole triggers for both projects; launchd is retired.

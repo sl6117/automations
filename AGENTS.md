@@ -21,6 +21,7 @@ side projects or feature work that doesn't advance it.
 - `internal/runner/` - the `Project` contract and registry.
 - `internal/ai/` - LLM clients (Anthropic, OpenRouter).
 - `internal/obs/` - cost logging + report (`auto cost`).
+- `internal/corpus/` - every fetched post, kept and dropped, by UTC fetch day, in its own table (`CORPUS_TABLE`). Behind the digest's `corpus.enabled` flag.
 - `pkg/sources/` - data-source adapters (X API, mock). `pkg/sinks/` - delivery (telegram, email, console).
 - `projects/<name>/` - one automation: code, `config.json`, `prompts/`, tests.
 - `docs/decisions/` - why we did things (archive analysis here, not in code comments).

@@ -11,6 +11,7 @@ import (
 
 	"github.com/sl6117/automations/internal/ai"
 	"github.com/sl6117/automations/internal/config"
+	"github.com/sl6117/automations/internal/corpus"
 	"github.com/sl6117/automations/internal/obs"
 	"github.com/sl6117/automations/internal/queue"
 	"github.com/sl6117/automations/internal/runner"
@@ -38,6 +39,7 @@ type project struct {
 	sinks   []sinks.Sink
 	sinkFor func(Subscriber, Config, *runner.Runtime) (sinks.Sink, error)
 	store   storage.Store
+	corpus  storage.Store // tests inject; production resolves corpus.StoreFromEnv only when the flag is on
 	jobs    queue.Queue
 	alert   sinks.Sink
 	jev     ai.Jev // tests set APIKey and BaseURL; production leaves this empty and uses JEV_API_KEY
@@ -126,6 +128,7 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 		}
 		return err
 	}
+	fetchedAt := time.Now().UTC()
 
 	if sourceTruncated {
 		runTime.Log.Println("[twitter-digest] WARNING: fetch hit the page cap with more content available - the oldest posts in this window were never fetched and never will be")
@@ -137,6 +140,9 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 	if err := saveSourceStats(ctx, store, meta, observations); err != nil {
 		// measurement must never cost a digest: the reads are already paid for
 		runTime.Log.Printf("[twitter-digest] source stats write failed: %v", err)
+	}
+	if cfg.Corpus.Enabled && !runTime.DryRun {
+		p.saveCorpus(ctx, runTime, meta, fetchedAt, tweets, observations)
 	}
 
 	if len(kept) == 0 {
@@ -390,6 +396,38 @@ func (p *project) Run(ctx context.Context, runTime *runner.Runtime) error {
 	}
 	return p.drain(ctx, runTime, cfg, subs, jobs)
 
+}
+
+// saveCorpus stores every fetched post, kept and dropped, with the filter's verdict.
+// Fail-open like saveSourceStats: the reads are already paid for and the digest must
+// still go out, so every failure is logged and swallowed.
+func (p *project) saveCorpus(ctx context.Context, runTime *runner.Runtime, meta FetchMeta, fetchedAt time.Time, tweets []sources.Tweet, observations []PostObservation) {
+	if len(observations) != len(tweets) {
+		runTime.Log.Printf("[twitter-digest] corpus skipped: %d observations for %d posts", len(observations), len(tweets))
+		return
+	}
+	store := p.corpus
+	if store == nil {
+		selected, err := corpus.StoreFromEnv(ctx)
+		if err != nil {
+			runTime.Log.Printf("[twitter-digest] corpus store unavailable: %v", err)
+			return
+		}
+		store = selected
+	}
+	posts := make([]corpus.StoredPost, len(tweets))
+	for i, t := range tweets {
+		posts[i] = corpus.FromTweet(t)
+		posts[i].SourceKeys = []string{"core"}
+		posts[i].Kept = observations[i].Kept
+		posts[i].DropReason = string(observations[i].DropReason)
+	}
+	run := corpus.RunRecord{FetchedAt: fetchedAt, Source: meta.Source, Reads: meta.Reads, Truncated: meta.Truncated, Fetched: len(tweets)}
+	if err := corpus.Save(ctx, store, run, posts); err != nil {
+		runTime.Log.Printf("[twitter-digest] corpus write failed: %v", err)
+		return
+	}
+	runTime.Log.Printf("[twitter-digest] corpus: stored %d posts", len(posts))
 }
 
 func (p *project) queueFromSeam(ctx context.Context) (queue.Queue, error) {
