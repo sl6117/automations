@@ -252,33 +252,86 @@ func TestExportRefusesDaysWithNothingToSay(t *testing.T) {
 	}
 }
 
+// rejectEmptyStore refuses zero-length values, as DynamoDB has done in this codebase.
+type rejectEmptyStore struct{ storage.Store }
+
+func (r rejectEmptyStore) Put(ctx context.Context, key string, data []byte) error {
+	if len(data) == 0 {
+		return fmt.Errorf("put %q: empty value rejected", key)
+	}
+	return r.Store.Put(ctx, key, data)
+}
+
+// An empty-mention day is never stored as zero-byte items, yet consumers still get two
+// empty data files: the manifest is what declares them empty.
 func TestEmptyMentionDayStillSeals(t *testing.T) {
 	root := t.TempDir()
-	store := &storage.FS{Root: root}
+	store := rejectEmptyStore{&storage.FS{Root: root}}
+	ctx := context.Background()
 	posts := []corpus.StoredPost{fixturePost("1900000000000000001", "@example_wire", "nothing to see", 10)}
-	if err := corpus.Save(context.Background(), store, corpus.RunRecord{FetchedAt: exportDay.Add(16 * time.Hour), Fetched: 1}, posts); err != nil {
+	if err := corpus.Save(ctx, store, corpus.RunRecord{FetchedAt: exportDay.Add(16 * time.Hour), Fetched: 1}, posts); err != nil {
 		t.Fatal(err)
 	}
-	res, err := Export(context.Background(), store, fixtureUniverse(t), exportDay, sealClock)
+	res, err := Export(ctx, store, fixtureUniverse(t), exportDay, sealClock)
 	if err != nil || res.Outcome != OutcomeSealed || res.Mentions != 0 || res.EntityDays != 0 || res.PostsFetched != 1 {
 		t.Fatalf("export = %+v (err %v), want sealed with zero records and 1 post fetched", res, err)
 	}
 	files := exportedFiles(t, root)
 	m1, e1, man := RelPaths("2026-11-21", 1)
-	if d, ok := files[exportPrefix+m1]; !ok || len(d) != 0 {
-		t.Errorf("mentions file present=%v len=%d, want present and empty", ok, len(d))
-	}
-	if d, ok := files[exportPrefix+e1]; !ok || len(d) != 0 {
-		t.Errorf("entity_day file present=%v len=%d, want present and empty", ok, len(d))
+	if len(files) != 1 || files[exportPrefix+man] == nil {
+		t.Errorf("stored %v, want only the manifest", keys(files))
 	}
 	var m Manifest
 	if err := json.Unmarshal(files[exportPrefix+man], &m); err != nil {
 		t.Fatal(err)
 	}
-	if m.Files[0].Records != 0 || m.Files[1].Records != 0 || m.PostsFetched != 1 || m.UnmappedCashtags == nil {
-		t.Errorf("manifest = %+v, want zero record counts, posts_fetched 1, unmapped []", m)
+	if m.Files[0].Records != 0 || m.Files[1].Records != 0 || m.Files[0].SHA256 != emptySHA256 || m.PostsFetched != 1 || m.UnmappedCashtags == nil {
+		t.Errorf("manifest = %+v, want zero record counts, the empty sha256, posts_fetched 1, unmapped []", m)
 	}
 	validateFile(t, "manifest", files[exportPrefix+man])
+
+	// a rerun is unchanged, not a new revision
+	if res, err := Export(ctx, store, fixtureUniverse(t), exportDay, lateClock); err != nil || res.Outcome != OutcomeUnchanged {
+		t.Errorf("rerun = %+v (err %v), want unchanged r1", res, err)
+	}
+
+	out := t.TempDir()
+	if _, _, err := Materialize(ctx, store, exportDay, out); err != nil {
+		t.Fatalf("materialize: %v", err)
+	}
+	for _, rel := range []string{m1, e1} {
+		info, err := os.Stat(filepath.Join(out, filepath.FromSlash(rel)))
+		if err != nil || info.Size() != 0 {
+			t.Errorf("--out %s: %v, want a zero-byte file", rel, err)
+		}
+	}
+	if n, err := Sealed(ctx, store, exportDay); err != nil || n != 1 {
+		t.Errorf("Sealed = %d (err %v), want 1", n, err)
+	}
+	if n, err := Sealed(ctx, store, exportDay.AddDate(0, 0, -1)); err != nil || n != 0 {
+		t.Errorf("Sealed(unsealed day) = %d (err %v), want 0", n, err)
+	}
+}
+
+// A leftover from a crashed attempt at a key the manifest declares empty must be ignored.
+func TestDeclaredEmptyFileIgnoresAStaleLeftover(t *testing.T) {
+	store := &storage.FS{Root: t.TempDir()}
+	ctx := context.Background()
+	m1, _, _ := RelPaths("2026-11-21", 1)
+	if err := store.Put(ctx, exportPrefix+m1, []byte("stale leftover\n")); err != nil {
+		t.Fatal(err)
+	}
+	posts := []corpus.StoredPost{fixturePost("1900000000000000001", "@example_wire", "nothing to see", 10)}
+	if err := corpus.Save(ctx, store, corpus.RunRecord{FetchedAt: exportDay.Add(16 * time.Hour), Fetched: 1}, posts); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Export(ctx, store, fixtureUniverse(t), exportDay, sealClock); err != nil {
+		t.Fatal(err)
+	}
+	files, err := RevisionFiles(ctx, store, exportDay, 1)
+	if err != nil || len(files) != 3 || len(files[0].Data) != 0 || !strings.HasPrefix(files[2].Path, "manifest/") {
+		t.Errorf("RevisionFiles = %+v (err %v), want empty mentions, entity_day, then the manifest", files, err)
+	}
 }
 
 // Nothing but contract fields may leave: no post text, no display names, nothing the

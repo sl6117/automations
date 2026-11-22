@@ -23,6 +23,7 @@ side projects or feature work that doesn't advance it.
 - `internal/obs/` - cost logging + report (`auto cost`).
 - `internal/corpus/` - every fetched post, kept and dropped, by UTC fetch day, in its own table (`CORPUS_TABLE`). Behind the digest's `corpus.enabled` flag.
 - `internal/kf/` - ticker universe, mention matching, entity-day aggregate, and sealed daily exports (`auto kf export`).
+- `projects/knowledge-factory/` - daily job: seals the desk feed from the corpus (today plus 3 unsealed catch-up days) and, behind `publish.enabled`, commits sealed files to GitHub. Runbook: `docs/setup/knowledge-factory.md`.
 - `pkg/sources/` - data-source adapters (X API, mock). `pkg/sinks/` - delivery (telegram, email, console).
 - `projects/<name>/` - one automation: code, `config.json`, `prompts/`, tests.
 - `docs/decisions/` - why we did things (archive analysis here, not in code comments).
@@ -53,7 +54,8 @@ and blank-import the package in `cmd/auto/main.go`.
 - Tests: `go test ./...`.
 
 ## Deploying (scheduled runs)
-- Scheduled runs are AWS Lambda on EventBridge: digest daily 09:00 PT, deepdive Sundays
+- Scheduled runs are AWS Lambda on EventBridge: digest daily 09:00 PT, knowledge-factory
+  daily 09:30 PT (seals the desk feed after the digest has fetched), deepdive Sundays
   10:00 PT. Nothing runs locally (no launchd, no crontab). Logs are in CloudWatch.
 - **Pushing to `main` does NOT deploy.** CI is test-only. The Lambdas run a container image
   built at deploy time, so Go changes reach production only via

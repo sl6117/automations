@@ -86,38 +86,53 @@ func fileHash(m *Manifest, prefix string) string {
 	return ""
 }
 
-// Export seals day D. When the latest sealed revision already holds byte-identical data
-// files it does nothing. Otherwise it writes r<N+1>: data files first, manifest last, so
-// a crash leaves an unsealed revision that the next run overwrites.
-func Export(ctx context.Context, store storage.Store, u *Universe, day time.Time, now func() time.Time) (ExportResult, error) {
+// compute loads day D and its baseline window from the corpus and builds the data files.
+func compute(ctx context.Context, store storage.Store, u *Universe, day time.Time, now func() time.Time) (DayExport, ExportResult, error) {
 	date := utcDate(day)
 	dateStr := date.Format(dateLayout)
 	res := ExportResult{Date: dateStr}
 	if date.After(utcDate(now())) {
-		return res, fmt.Errorf("refusing to export %s: it is in the future", dateStr)
+		return DayExport{}, res, fmt.Errorf("refusing to export %s: it is in the future", dateStr)
 	}
-
 	today, err := loadDay(ctx, store, date)
 	if err != nil {
-		return res, err
+		return DayExport{}, res, err
 	}
 	if len(today.Runs) == 0 {
-		return res, fmt.Errorf("%w on %s", ErrNothingFetched, dateStr)
+		return DayExport{}, res, fmt.Errorf("%w on %s", ErrNothingFetched, dateStr)
 	}
 	history := make([]Day, 0, BaselineWindowDays)
 	for i := 1; i <= BaselineWindowDays; i++ {
 		d, err := loadDay(ctx, store, date.AddDate(0, 0, -i))
 		if err != nil {
-			return res, err
+			return DayExport{}, res, err
 		}
 		history = append(history, d)
 	}
-
 	built, err := BuildDay(u, today, history)
+	if err != nil {
+		return DayExport{}, res, err
+	}
+	res.Mentions, res.EntityDays, res.PostsFetched = built.MentionCount, built.EntityDayCount, built.PostsFetched
+	return built, res, nil
+}
+
+// Preview computes what Export would seal for day D, with the same errors, and writes
+// nothing. Outcome and Revision are left empty. It backs dry runs.
+func Preview(ctx context.Context, store storage.Store, u *Universe, day time.Time, now func() time.Time) (ExportResult, error) {
+	_, res, err := compute(ctx, store, u, day, now)
+	return res, err
+}
+
+// Export seals day D. When the latest sealed revision already holds byte-identical data
+// files it does nothing. Otherwise it writes r<N+1>: data files first, manifest last, so
+// a crash leaves an unsealed revision that the next run overwrites.
+func Export(ctx context.Context, store storage.Store, u *Universe, day time.Time, now func() time.Time) (ExportResult, error) {
+	built, res, err := compute(ctx, store, u, day, now)
 	if err != nil {
 		return res, err
 	}
-	res.Mentions, res.EntityDays, res.PostsFetched = built.MentionCount, built.EntityDayCount, built.PostsFetched
+	dateStr := res.Date
 
 	latest, sealed, err := latestSealed(ctx, store, dateStr)
 	if err != nil {
@@ -158,11 +173,18 @@ func Export(ctx context.Context, store storage.Store, u *Universe, day time.Time
 	}
 	manBytes = append(manBytes, '\n')
 
-	if err := store.Put(ctx, exportPrefix+mPath, built.Mentions); err != nil {
-		return res, fmt.Errorf("write %s: %w", mPath, err)
-	}
-	if err := store.Put(ctx, exportPrefix+ePath, built.EntityDays); err != nil {
-		return res, fmt.Errorf("write %s: %w", ePath, err)
+	// An empty data file is not stored at all: DynamoDB has rejected empty values here
+	// before. The manifest (records 0, sha256 of nothing) is what says the file is empty.
+	for _, f := range []struct {
+		path string
+		data []byte
+	}{{mPath, built.Mentions}, {ePath, built.EntityDays}} {
+		if len(f.data) == 0 {
+			continue
+		}
+		if err := store.Put(ctx, exportPrefix+f.path, f.data); err != nil {
+			return res, fmt.Errorf("write %s: %w", f.path, err)
+		}
 	}
 	if err := store.Put(ctx, exportPrefix+manPath, manBytes); err != nil {
 		return res, fmt.Errorf("write %s: %w", manPath, err)
@@ -171,40 +193,79 @@ func Export(ctx context.Context, store storage.Store, u *Universe, day time.Time
 	return res, nil
 }
 
+// emptySHA256 is the sha256 of zero bytes: a manifest entry with this hash and zero
+// records describes a data file that was never stored.
+var emptySHA256 = sha256Hex(nil)
+
+// Sealed returns the latest sealed revision of day, or 0 when none exists. It writes nothing.
+func Sealed(ctx context.Context, store storage.Store, day time.Time) (int, error) {
+	rev, _, err := latestSealed(ctx, store, utcDate(day).Format(dateLayout))
+	return rev, err
+}
+
+// File is one published file of a revision, by its path relative to exports/v1/.
+type File struct {
+	Path string
+	Data []byte
+}
+
+// RevisionFiles returns a sealed revision's files in publishing order: the data files
+// first and the manifest last, so a copy that has the manifest has everything. Each data
+// file is checked against the manifest. A file the manifest declares empty is returned
+// as zero bytes without being read, so a leftover from a crashed attempt is never used.
+func RevisionFiles(ctx context.Context, store storage.Store, day time.Time, rev int) ([]File, error) {
+	date := utcDate(day).Format(dateLayout)
+	_, _, manPath := RelPaths(date, rev)
+	manBytes, err := store.Get(ctx, exportPrefix+manPath)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", manPath, err)
+	}
+	var m Manifest
+	if err := json.Unmarshal(manBytes, &m); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", manPath, err)
+	}
+	var files []File
+	for _, f := range m.Files {
+		if f.Records == 0 && f.SHA256 == emptySHA256 {
+			files = append(files, File{Path: f.Path, Data: []byte{}})
+			continue
+		}
+		data, err := store.Get(ctx, exportPrefix+f.Path)
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", f.Path, err)
+		}
+		if sha256Hex(data) != f.SHA256 {
+			return nil, fmt.Errorf("%s does not match its manifest sha256", f.Path)
+		}
+		files = append(files, File{Path: f.Path, Data: data})
+	}
+	return append(files, File{Path: manPath, Data: manBytes}), nil
+}
+
 // Materialize copies the latest sealed revision of a day into dir under the same
 // relative paths, checking every data file against the manifest's sha256 on the way.
 func Materialize(ctx context.Context, store storage.Store, day time.Time, dir string) (int, []string, error) {
-	dateStr := utcDate(day).Format(dateLayout)
-	rev, m, err := latestSealed(ctx, store, dateStr)
+	rev, err := Sealed(ctx, store, day)
 	if err != nil {
 		return 0, nil, err
 	}
-	if m == nil {
-		return 0, nil, fmt.Errorf("no sealed revision of %s", dateStr)
+	if rev == 0 {
+		return 0, nil, fmt.Errorf("no sealed revision of %s", utcDate(day).Format(dateLayout))
 	}
-	_, _, manPath := RelPaths(dateStr, rev)
-	paths := []string{}
-	for _, f := range m.Files {
-		paths = append(paths, f.Path)
+	files, err := RevisionFiles(ctx, store, day, rev)
+	if err != nil {
+		return 0, nil, fmt.Errorf("refusing to materialize: %w", err)
 	}
-	paths = append(paths, manPath)
-	for _, rel := range paths {
-		data, err := store.Get(ctx, exportPrefix+rel)
-		if err != nil {
-			return 0, nil, fmt.Errorf("read %s: %w", rel, err)
-		}
-		for _, f := range m.Files {
-			if f.Path == rel && sha256Hex(data) != f.SHA256 {
-				return 0, nil, fmt.Errorf("%s does not match its manifest sha256; refusing to materialize", rel)
-			}
-		}
-		dst := filepath.Join(dir, filepath.FromSlash(rel))
+	var paths []string
+	for _, f := range files {
+		dst := filepath.Join(dir, filepath.FromSlash(f.Path))
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			return 0, nil, err
 		}
-		if err := os.WriteFile(dst, data, 0o644); err != nil {
+		if err := os.WriteFile(dst, f.Data, 0o644); err != nil {
 			return 0, nil, err
 		}
+		paths = append(paths, f.Path)
 	}
 	return rev, paths, nil
 }
