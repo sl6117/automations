@@ -3,6 +3,7 @@
         "enabled": false,
         "repo": "sl6117/valhalla-knowledge",
         "branch": "main",
-        "pathPrefix": "desk-feed/v1"
+        "pathPrefix": "desk-feed/v1",
+        "includeMentions": false
     }
 }

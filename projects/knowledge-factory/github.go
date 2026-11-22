@@ -160,8 +160,9 @@ func (p *publisher) ensure(ctx context.Context, path string, data []byte, messag
 }
 
 // publishRevision publishes one sealed revision, data files first and the manifest last,
-// so a manifest in the repo means the whole revision is there. A revision whose manifest
-// is already published (with the same bytes) is skipped without touching its data files.
+// so a manifest in the repo means every file delivered for it is there. A revision whose
+// manifest is already published (with the same bytes) is skipped without touching its data
+// files, so turning IncludeMentions on later does not backfill earlier revisions.
 func (p *publisher) publishRevision(ctx context.Context, date string, rev int, files []kf.File) error {
 	manifest := files[len(files)-1]
 	present, err := p.existingMatches(ctx, manifest)
@@ -170,6 +171,9 @@ func (p *publisher) publishRevision(ctx context.Context, date string, rev int, f
 	}
 	for _, f := range files {
 		kind := strings.SplitN(f.Path, "/", 2)[0]
+		if kind == "mentions" && !p.cfg.IncludeMentions {
+			continue // sealed and kept in the corpus store, but not delivered
+		}
 		created, err := p.ensure(ctx, f.Path, f.Data, fmt.Sprintf("desk-feed: %s r%d %s", date, rev, kind))
 		if err != nil {
 			return err

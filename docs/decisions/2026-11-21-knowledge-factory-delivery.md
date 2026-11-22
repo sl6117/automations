@@ -8,6 +8,10 @@ The consumer is another team's bot that works through GitHub and cloud agents. I
 
 It is written with the plain GitHub REST Contents API from the standard library. That is one file per commit, which is plenty for six small files a day, and it adds no dependency.
 
+## Why only entity_day and the manifest are delivered
+
+After reviewing the contract, the desk said it reads only `entity_day`. The per-post `mentions` file carries account handles and post ids, and the desk's auditor has to review everything that lands in the repo it reads. So `mentions` is still sealed and kept in the corpus store, but it is published only when `publish.includeMentions` is true; it defaults to and ships as false. The manifest is unchanged by this setting, so the seal does not depend on delivery: the delivered manifest names a mentions file the repo does not hold. "Already published" still keys on the manifest, so a revision published without mentions is complete. Switching the setting on later does not backfill earlier revisions.
+
 ## Why a sealed file is never overwritten
 
 The contract promises that a sealed revision never changes. That is what makes point-in-time research honest: a backtest that read `r1` at 17:30 must see the same bytes tomorrow. So:

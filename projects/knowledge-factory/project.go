@@ -51,6 +51,10 @@ type PublishConfig struct {
 	Repo       string `json:"repo"`       // owner/name
 	Branch     string `json:"branch"`     // branch the files are committed to
 	PathPrefix string `json:"pathPrefix"` // directory in the repo, e.g. desk-feed/v1
+	// IncludeMentions also delivers the per-post mentions file. Off by default: the desk
+	// reads only entity_day, and mentions carries handles and post ids that its auditor
+	// would otherwise have to review. Sealing is unaffected; the manifest still lists both.
+	IncludeMentions bool `json:"includeMentions"`
 }
 
 var repoPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$`)

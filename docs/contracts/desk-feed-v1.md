@@ -15,7 +15,7 @@ It is **not** market-wide attention. In particular:
 
 ## Files
 
-The feed publishes one set of files per sealed **day** `D` (the UTC date on which posts were fetched, not the date they were written) and per **revision** `rN`:
+The producer seals one set of three files per **day** `D` (the UTC date on which posts were fetched, not the date they were written) and per **revision** `rN`:
 
 | Path | Content |
 |---|---|
@@ -26,9 +26,22 @@ The feed publishes one set of files per sealed **day** `D` (the UTC date on whic
 - **Data files** are UTF-8, one compact JSON object per line, each line ending in `\n`. A day with no mentions has two empty data files (zero bytes) and a manifest.
 - **Timestamps** are second-precision RFC3339 in UTC (`2026-11-21T16:00:01Z`). Fetch times are rounded **up** to the second, so a record is never available earlier than the moment it was actually fetched.
 
+## What is delivered
+
+Three files are sealed per revision, but only two are delivered to the desk's repo:
+
+- **Delivered:** `entity_day/<D>.r<N>.jsonl` and `manifest/<D>.r<N>.json`.
+- **Not delivered by default:** `mentions/<D>.r<N>.jsonl`. The producer retains it in its own store and can deliver it on request. It carries account handles and post ids, which the desk does not need for entity-day work.
+
+The manifest is the seal of the whole revision, so the delivered manifest still lists the `mentions` file with its hash and record count. That entry is not an error, and its absence from the repo does not make the revision incomplete. A revision is complete when its manifest is present, because the manifest is always written last.
+
+If mentions delivery is switched on later, it applies to revisions published from then on. Earlier revisions are not backfilled.
+
 Schemas: `kf.mention.v1.schema.json`, `kf.entity_day.v1.schema.json`, `kf.manifest.v1.schema.json` (JSON Schema 2020-12). The schemas do not forbid extra properties, because v1 may gain fields.
 
 ### `kf.mention.v1`: one ticker mentioned in one post
+
+*Retained by the producer and not delivered by default; available on request.*
 
 There is at most one record per (post, ticker, kind, in).
 
@@ -101,7 +114,7 @@ The 14-day window and the 10-day minimum are fixed parts of v1. They are not tun
 1. **Point in time:** use `available_at` (or the manifest's `sealed_at`) for point-in-time work, never `created_at`.
 2. **Sealed revisions never change.** A revision exists once its manifest exists. Its files are never rewritten or deleted.
 3. **Choosing a revision:** for a decision at time T, use the highest revision of the day whose `sealed_at` ≤ T. A later revision (a late fetch landed) supersedes earlier ones from its `sealed_at` onward.
-4. **Verify** every data file's sha256 and line count against the manifest before use.
+4. **Verify** every **delivered** data file's sha256 and line count against its manifest entry before use. A manifest entry for a file that was not delivered (by default, `mentions`) is not an error.
 5. **Ignore unknown fields.** v1 only ever adds fields. Removing or renaming a field, or changing a field's meaning, publishes a new `v2` path while v1 continues to be produced.
 6. **Zero versus missing:**
    - On a sealed day with `window_truncated` and `window_partial` both false, a ticker with no entity-day row had **zero** mentions.

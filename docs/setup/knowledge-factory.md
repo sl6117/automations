@@ -75,13 +75,13 @@ When the token expires, publishing fails loudly: the run errors and a Telegram a
 
 ## 6. Turn on publishing
 
-1. In `projects/knowledge-factory/config.json`, set `"publish": {"enabled": true, …}`. Leave `repo`, `branch` and `pathPrefix` as they are unless the repo moved.
+1. In `projects/knowledge-factory/config.json`, set `"publish": {"enabled": true, …}`. Leave `repo`, `branch` and `pathPrefix` as they are unless the repo moved. Leave `includeMentions` at `false`: the desk reads only `entity_day`, and the per-post `mentions` file (handles and post ids) stays sealed in the corpus table. Set it to `true` only if the desk asks for mentions. It then applies to revisions published from that point on.
 2. Commit, then deploy.
 
 - **Needs deploy:** yes.
 - **Confirm:**
-  - After the next 09:30 run, the repo has commits named like `desk-feed: <date> r1 mentions` / `entity_day` / `manifest`.
-  - The files are under `desk-feed/v1/mentions/`, `entity_day/` and `manifest/`.
+  - After the next 09:30 run, the repo has two commits per revision, named like `desk-feed: <date> r1 entity_day` and `desk-feed: <date> r1 manifest`.
+  - The files are under `desk-feed/v1/entity_day/` and `desk-feed/v1/manifest/`. There is no `mentions/` directory, even though each manifest lists a mentions file; that is expected.
   - The log lists each `published desk-feed/v1/…` path.
   - A second run on the same day publishes nothing new unless a late fetch produced `r2`.
 - **If publishing fails:** the run is recorded as failed and a Telegram alert arrives. The message never contains the token. The sealed files are safe in the corpus table, and the next run publishes whatever is missing from the last 3 days.

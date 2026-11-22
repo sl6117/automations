@@ -48,12 +48,19 @@ func (f forbiddenTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	return nil, io.EOF
 }
 
-// projectDir writes a minimal project directory: config plus a synthetic universe.
+// projectDir writes a minimal project directory: config plus a synthetic universe. It
+// delivers mentions too, the behaviour the original publish tests were written against;
+// projectDirWith sets includeMentions explicitly.
 func projectDir(t *testing.T, publish bool, universeVersion string) string {
+	return projectDirWith(t, publish, universeVersion, true)
+}
+
+func projectDirWith(t *testing.T, publish bool, universeVersion string, includeMentions bool) string {
 	t.Helper()
 	dir := t.TempDir()
-	cfg := `{"publish": {"enabled": ` + map[bool]string{true: "true", false: "false"}[publish] +
-		`, "repo": "example-owner/example-feed", "branch": "main", "pathPrefix": "desk-feed/v1"}}`
+	b := map[bool]string{true: "true", false: "false"}
+	cfg := `{"publish": {"enabled": ` + b[publish] +
+		`, "repo": "example-owner/example-feed", "branch": "main", "pathPrefix": "desk-feed/v1", "includeMentions": ` + b[includeMentions] + `}}`
 	universe := `{"version": "` + universeVersion + `", "entries": [{"ticker": "EXMPL", "type": "equity", "aliases": ["Example Corp"]}, {"ticker": "EXMPB", "type": "equity", "aliases": []}]}`
 	for name, body := range map[string]string{"config.json": cfg, "universe.json": universe} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
@@ -119,6 +126,7 @@ type fakeGitHub struct {
 	puts     []string          // repo paths, in order
 	bodies   [][]byte
 	auth     []string
+	paths    []string        // every request path, GET and PUT
 	raceOnce map[string]bool // paths whose first create loses a race to another writer
 }
 
@@ -132,6 +140,7 @@ func (g *fakeGitHub) handle(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.auth = append(g.auth, r.Header.Get("Authorization"))
+	g.paths = append(g.paths, r.URL.Path)
 	const prefix = "/repos/example-owner/example-feed/contents/"
 	if !strings.HasPrefix(r.URL.Path, prefix) {
 		http.Error(w, "unknown route", http.StatusNotFound)
@@ -511,5 +520,80 @@ func TestBlobSHAMatchesGit(t *testing.T) {
 	}
 	if got := blobSHA([]byte("hello\n")); got != "ce013625030ba8dba906f756967f9e9ca394464a" {
 		t.Errorf("hello blob sha = %s", got)
+	}
+}
+
+// The desk reads only entity_day. By default mentions (handles, post ids) stays sealed in
+// the corpus store and never reaches the repo; the manifest still names it.
+func TestPublishWithoutMentionsDeliversOnlyEntityDayAndManifest(t *testing.T) {
+	h := newHarness(t, true)
+	h.rt.ProjectDir = projectDirWith(t, true, "test-v1", false)
+	gh := h.withGitHub(t)
+	seedDay(t, h.corpus, today, "$EXMPL is up", "Example Corp again")
+	seedDay(t, h.corpus, today.AddDate(0, 0, -1), "no tickers") // an empty-mention day
+	if err := h.p.Run(context.Background(), h.rt); err != nil {
+		t.Fatalf("run: %v\n%s", err, h.logs.String())
+	}
+	wantOrder := []string{
+		"desk-feed/v1/entity_day/2026-11-20.r1.jsonl", "desk-feed/v1/manifest/2026-11-20.r1.json",
+		"desk-feed/v1/entity_day/2026-11-21.r1.jsonl", "desk-feed/v1/manifest/2026-11-21.r1.json",
+	}
+	if strings.Join(gh.puts, ",") != strings.Join(wantOrder, ",") {
+		t.Errorf("creates =\n%v\nwant\n%v", gh.puts, wantOrder)
+	}
+	sealed := sealedFiles(t, h.corpus)
+	if len(sealed) != 6 {
+		t.Errorf("sealed %d files, want all three per revision still sealed", len(sealed))
+	}
+	for i, body := range gh.bodies {
+		var req map[string]any
+		if err := json.Unmarshal(body, &req); err != nil {
+			t.Fatal(err)
+		}
+		content, _ := base64.StdEncoding.DecodeString(req["content"].(string))
+		if !bytes.Equal(content, sealed[gh.puts[i]]) {
+			t.Errorf("PUT %s is not a byte-identical copy of the sealed file", gh.puts[i])
+		}
+		// the planted handles and post ids live only in the undelivered mentions file
+		for _, planted := range []string{"example_wire", "1900000000000011210", "1900000000000011211", "1900000000000011200"} {
+			if bytes.Contains(content, []byte(planted)) || bytes.Contains(body, []byte(planted)) {
+				t.Errorf("PUT %s carries %q", gh.puts[i], planted)
+			}
+		}
+	}
+	if got, ok := gh.files["desk-feed/v1/entity_day/2026-11-20.r1.jsonl"]; !ok || len(got) != 0 {
+		t.Errorf("empty-mention day: entity_day present=%v len=%d, want an empty file", ok, len(got))
+	}
+	for _, p := range gh.paths {
+		if strings.Contains(p, "mentions/") {
+			t.Errorf("a request touched %s", p)
+		}
+	}
+	// the delivered manifest still names the undelivered mentions file
+	var m kf.Manifest
+	if err := json.Unmarshal(gh.files["desk-feed/v1/manifest/2026-11-21.r1.json"], &m); err != nil || len(m.Files) != 2 || !strings.HasPrefix(m.Files[0].Path, "mentions/") {
+		t.Errorf("delivered manifest files = %+v (err %v), want mentions and entity_day listed", m.Files, err)
+	}
+
+	gh.puts, gh.paths = nil, nil
+	if err := h.p.Run(context.Background(), h.rt); err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+	if len(gh.puts) != 0 {
+		t.Errorf("second run created %v; a revision published without mentions must count as complete", gh.puts)
+	}
+}
+
+func TestShippedConfigDoesNotDeliverMentions(t *testing.T) {
+	var cfg Config
+	data, err := os.ReadFile("config.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Publish.IncludeMentions {
+		t.Error("config.json delivers mentions; the desk reads entity_day only")
 	}
 }
